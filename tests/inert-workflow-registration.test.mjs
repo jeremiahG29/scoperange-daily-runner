@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -13,6 +16,8 @@ import {
 import { execute } from "../bootstrap/entry.js";
 import { createZeroEffectReceipt } from "../bootstrap/operational-receipt.js";
 import { evaluateRecurrenceGate, evaluateRuntimeGate } from "../bootstrap/runtime-gate.js";
+import * as syntheticSourceFetch from "../bootstrap/synthetic-source-fetch.js";
+import * as syntheticRecurrence from "../bootstrap/synthetic-recurrence-adapter.js";
 
 const root = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const workflowsRoot = path.join(root, ".github", "workflows");
@@ -44,6 +49,79 @@ function repositoryFiles() {
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
+}
+
+function fixtureGit(repositoryPath, args) {
+  const result = spawnSync("git", args, {
+    cwd: repositoryPath,
+    encoding: "utf8",
+    env: { ...process.env, GIT_CONFIG_NOSYSTEM: "1", GIT_TERMINAL_PROMPT: "0" }
+  });
+  assert.equal(result.status, 0, result.stderr);
+  return result.stdout.trim();
+}
+
+function createSyntheticSourceRepository() {
+  const repositoryPath = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-source-fixture-"));
+  fixtureGit(repositoryPath, ["init", "--quiet"]);
+  fixtureGit(repositoryPath, ["config", "user.email", "synthetic@example.invalid"]);
+  fixtureGit(repositoryPath, ["config", "user.name", "Synthetic Fixture"]);
+  fixtureGit(repositoryPath, ["commit", "--quiet", "--allow-empty", "-m", "fixture parent"]);
+
+  const bundleRoot = "synthetic/public-runner";
+  const allowedPaths = ["contract.js", "entry.js", "operational-receipt.js", "package.json", "runtime-gate.js"]
+    .map((file) => `${bundleRoot}/${file}`);
+  fs.mkdirSync(path.join(repositoryPath, ...bundleRoot.split("/")), { recursive: true });
+  for (const [index, file] of allowedPaths.entries()) {
+    fs.writeFileSync(path.join(repositoryPath, ...file.split("/")), `synthetic-fixture-${index}\n`, "utf8");
+  }
+  fixtureGit(repositoryPath, ["add", "--", bundleRoot]);
+  fixtureGit(repositoryPath, ["commit", "--quiet", "-m", "fixture bundle"]);
+
+  const approvedCommit = fixtureGit(repositoryPath, ["rev-parse", "HEAD"]);
+  const approvedParent = fixtureGit(repositoryPath, ["rev-parse", "HEAD^"]);
+  const approvedTree = fixtureGit(repositoryPath, ["rev-parse", "HEAD^{tree}"]);
+  const entries = fixtureGit(repositoryPath, ["ls-tree", "-r", approvedCommit, "--", bundleRoot])
+    .split(/\r?\n/u)
+    .map((line) => {
+      const match = /^(\d{6}) blob ([0-9a-f]{40})\s+(.+)$/u.exec(line);
+      assert.ok(match);
+      return `${match[1]}\t${match[2]}\t${match[3]}\n`;
+    })
+    .sort()
+    .join("");
+  const allowedBundleDigest = `sha256:${crypto.createHash("sha256").update(entries, "utf8").digest("hex")}`;
+  const lock = {
+    schemaVersion: "scoperange-public-runner-source-lock-v1",
+    lockVersion: "synthetic-fixture-v1",
+    repository: "jeremiahG29/scopematch",
+    approvedCommit,
+    requiredAncestor: approvedParent,
+    approvedParent,
+    approvedTree,
+    bundleRoot,
+    allowedPaths,
+    allowedBundleDigest,
+    fetch: {
+      refType: "commit_only",
+      allowedRefs: [],
+      fallbackAllowed: false,
+      tagsAllowed: false,
+      branchesAllowed: false,
+      submodulesAllowed: false,
+      lfsAllowed: false,
+      credentialHelperAllowed: false,
+      hostKeyChecking: "strict_github_host_keys_only"
+    },
+    credential: {
+      type: "repository_scoped_read_only_deploy_key",
+      repositoryCount: 1,
+      write: false,
+      created: false
+    },
+    activationAuthorized: false
+  };
+  return { allowedBundleDigest, lock, repositoryPath };
 }
 
 test("exactly one GitHub workflow is registered", () => {
@@ -293,4 +371,171 @@ test("zero-effect receipts never reflect untrusted reason or configuration value
   assert.equal(lines.length, 1);
   assert.deepEqual(Object.keys(JSON.parse(lines[0])), Object.keys(receipt));
   assert.doesNotMatch(lines[0], new RegExp(canary, "u"));
+});
+
+test("synthetic-only source-fetch and recurrence adapter modules are part of the public inventory", () => {
+  assert.equal(fs.existsSync(path.join(root, "bootstrap", "synthetic-source-fetch.js")), true);
+  assert.equal(fs.existsSync(path.join(root, "bootstrap", "synthetic-recurrence-adapter.js")), true);
+});
+
+test("synthetic source fetch verifies local Git objects without exposing source or gaining authority", () => {
+  const fixture = createSyntheticSourceRepository();
+  const commands = [];
+  try {
+    assert.equal(typeof syntheticSourceFetch.verifySyntheticSourceFetch, "function");
+    const receipt = syntheticSourceFetch.verifySyntheticSourceFetch({
+      repositoryPath: fixture.repositoryPath,
+      lock: fixture.lock,
+      onCommand: (command) => commands.push(command)
+    });
+    assert.deepEqual(receipt, {
+      schemaVersion: "scoperange-synthetic-source-fetch-receipt-v1",
+      disposition: "verified_synthetic_fixture",
+      sourceKind: "local_git_object_fixture",
+      fileCount: 5,
+      bundleDigest: fixture.allowedBundleDigest,
+      credentialReads: 0,
+      networkAttempts: 0,
+      materializedBytes: 0,
+      executionAttempts: 0,
+      productionAuthority: "none"
+    });
+    assert.ok(commands.length > 0);
+    assert.equal(commands.every((command) => command.network === false), true);
+    const serialized = JSON.stringify(receipt);
+    assert.doesNotMatch(serialized, /synthetic-fixture-[0-9]/u);
+    assert.equal(serialized.includes(fixture.repositoryPath), false);
+    assert.equal(serialized.includes(fixture.lock.approvedCommit), false);
+    assert.deepEqual(syntheticSourceFetch.SYNTHETIC_SOURCE_FETCH_CONTRACT, {
+      schemaVersion: "scoperange-synthetic-source-fetch-v1",
+      sourceKind: "local_git_object_fixture",
+      syntheticFixturesOnly: true,
+      credentialReads: 0,
+      networkAttempts: 0,
+      materializedBytes: 0,
+      executionAttempts: 0,
+      adapterConfigured: false,
+      productionAuthority: "none"
+    });
+  } finally {
+    fs.rmSync(fixture.repositoryPath, { recursive: true, force: true });
+  }
+});
+
+test("shared synthetic recurrence state rejects overlapping leases without reflecting identifiers", () => {
+  assert.equal(typeof syntheticRecurrence.createSyntheticRecurrenceStore, "function");
+  assert.equal(typeof syntheticRecurrence.createSyntheticRecurrenceAdapter, "function");
+  const store = syntheticRecurrence.createSyntheticRecurrenceStore();
+  const clock = () => new Date("2026-07-27T09:18:00.000Z");
+  const first = syntheticRecurrence.createSyntheticRecurrenceAdapter({ store, clock });
+  const second = syntheticRecurrence.createSyntheticRecurrenceAdapter({ store, clock });
+  const acquired = first.acquire({
+    scheduleKey: "daily:private-canary",
+    runId: "run-private-canary",
+    scheduledFor: "2026-07-27T09:17:00.000Z"
+  });
+  assert.equal(acquired.disposition, "acquired_synthetic_lease");
+  assert.equal(acquired.reasonCode, null);
+  assert.match(acquired.leaseReceipt, /^sha256:[0-9a-f]{64}$/u);
+  assert.equal(acquired.leaseExpiresAt, "2026-07-27T09:28:00.000Z");
+  assert.equal(acquired.productionAuthority, "none");
+  assert.equal(acquired.networkAttempts, 0);
+  assert.doesNotMatch(JSON.stringify(acquired), /private-canary/u);
+
+  const overlap = second.acquire({
+    scheduleKey: "daily:private-canary",
+    runId: "run-2-private-canary",
+    scheduledFor: "2026-07-27T09:17:00.000Z"
+  });
+  assert.deepEqual(overlap, {
+    schemaVersion: "scoperange-synthetic-recurrence-receipt-v1",
+    disposition: "rejected",
+    reasonCode: "active_overlap",
+    leaseReceipt: null,
+    leaseExpiresAt: null,
+    networkAttempts: 0,
+    productionAuthority: "none"
+  });
+  assert.deepEqual(syntheticRecurrence.SYNTHETIC_RECURRENCE_ADAPTER_CONTRACT, {
+    schemaVersion: "scoperange-synthetic-recurrence-adapter-v1",
+    storageKind: "shared_in_memory_fixture",
+    syntheticFixturesOnly: true,
+    productionDurability: false,
+    networkAttempts: 0,
+    adapterConfigured: false,
+    productionAuthority: "none"
+  });
+});
+
+test("synthetic recurrence cancellation is shared and fails the runtime contract closed", () => {
+  let now = new Date("2026-07-27T09:18:00.000Z");
+  const store = syntheticRecurrence.createSyntheticRecurrenceStore();
+  const first = syntheticRecurrence.createSyntheticRecurrenceAdapter({ store, clock: () => new Date(now) });
+  const second = syntheticRecurrence.createSyntheticRecurrenceAdapter({ store, clock: () => new Date(now) });
+  const acquired = first.acquire({
+    scheduleKey: "daily:2026-07-27",
+    runId: "run-1",
+    scheduledFor: "2026-07-27T09:17:00.000Z"
+  });
+  const initialState = second.runtimeState({ leaseReceipt: acquired.leaseReceipt });
+  assert.deepEqual(evaluateRecurrenceGate(initialState, now), { accepted: true });
+  assert.deepEqual(first.cancel({ leaseReceipt: acquired.leaseReceipt }), {
+    schemaVersion: "scoperange-synthetic-recurrence-receipt-v1",
+    disposition: "rejected",
+    reasonCode: "invocation_cancelled",
+    leaseReceipt: null,
+    leaseExpiresAt: null,
+    networkAttempts: 0,
+    productionAuthority: "none"
+  });
+  const cancelledState = second.runtimeState({ leaseReceipt: acquired.leaseReceipt });
+  assert.deepEqual(evaluateRecurrenceGate(cancelledState, now), { reasonCode: "invocation_cancelled" });
+});
+
+test("synthetic recurrence treats missed schedules and expired leases as terminal", () => {
+  let now = new Date("2026-07-27T10:02:00.001Z");
+  const missedStore = syntheticRecurrence.createSyntheticRecurrenceStore();
+  const missed = syntheticRecurrence.createSyntheticRecurrenceAdapter({
+    store: missedStore,
+    clock: () => new Date(now)
+  });
+  const input = {
+    scheduleKey: "daily:2026-07-27",
+    runId: "run-late",
+    scheduledFor: "2026-07-27T09:17:00.000Z"
+  };
+  assert.equal(missed.acquire(input).reasonCode, "missed_run_no_catch_up");
+  now = new Date("2026-07-27T09:18:00.000Z");
+  assert.equal(missed.acquire({ ...input, runId: "run-retry" }).reasonCode, "missed_run_no_catch_up");
+
+  const leaseStore = syntheticRecurrence.createSyntheticRecurrenceStore();
+  const lease = syntheticRecurrence.createSyntheticRecurrenceAdapter({
+    store: leaseStore,
+    clock: () => new Date(now)
+  });
+  lease.acquire({ ...input, runId: "run-on-time" });
+  now = new Date("2026-07-27T09:28:00.001Z");
+  assert.equal(lease.acquire({ ...input, runId: "run-after-expiry" }).reasonCode, "lease_replay_forbidden");
+  assert.equal(lease.resume().reasonCode, "resume_not_authorized");
+});
+
+test("conflicting schedule metadata cannot overwrite an active synthetic lease", () => {
+  const now = new Date("2026-07-27T09:18:00.000Z");
+  const store = syntheticRecurrence.createSyntheticRecurrenceStore();
+  const first = syntheticRecurrence.createSyntheticRecurrenceAdapter({ store, clock: () => new Date(now) });
+  const second = syntheticRecurrence.createSyntheticRecurrenceAdapter({ store, clock: () => new Date(now) });
+  const acquired = first.acquire({
+    scheduleKey: "daily:2026-07-27",
+    runId: "run-active",
+    scheduledFor: "2026-07-27T09:17:00.000Z"
+  });
+  const conflict = second.acquire({
+    scheduleKey: "daily:2026-07-27",
+    runId: "run-conflict",
+    scheduledFor: "2026-07-27T08:00:00.000Z"
+  });
+  assert.equal(conflict.reasonCode, "active_overlap");
+  assert.deepEqual(evaluateRecurrenceGate(first.runtimeState({ leaseReceipt: acquired.leaseReceipt }), now), {
+    accepted: true
+  });
 });
