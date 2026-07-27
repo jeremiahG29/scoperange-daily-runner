@@ -3,12 +3,23 @@ import fs from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
+import {
+  ACTIVATION_AUTHORIZED,
+  APPROVED_COMMIT_BINDING_CONTRACT,
+  PRODUCTION_IDENTITY_CONTRACT,
+  RECURRENCE_CONTRACT,
+  TARGET_BINDING_CONTRACT
+} from "../bootstrap/contract.js";
+import { execute } from "../bootstrap/entry.js";
+import { createZeroEffectReceipt } from "../bootstrap/operational-receipt.js";
+import { evaluateRecurrenceGate, evaluateRuntimeGate } from "../bootstrap/runtime-gate.js";
 
 const root = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const workflowsRoot = path.join(root, ".github", "workflows");
 const workflowRelativePath = ".github/workflows/scoperange-inert-shell.yml";
 const workflowPath = path.join(root, ...workflowRelativePath.split("/"));
 const exposurePath = path.join(root, "public-exposure-contract.json");
+const candidatePath = path.join(root, "inactive-public-daily-workflow.yml");
 
 function walkFiles(directory) {
   if (!fs.existsSync(directory)) return [];
@@ -133,4 +144,153 @@ test("the complete public inventory is explicit and contains no credential mater
     /\bscoperange_private\b/u,
     /[\w.+-]+@(?!example\.invalid\b)[\w.-]+\.[A-Za-z]{2,}/u
   ]) assert.doesNotMatch(source, pattern);
+});
+
+test("the inactive candidate reads its approved commit only from an external post-merge binding", () => {
+  const candidate = readJson(candidatePath);
+  const environment = candidate.jobs.gate.steps.at(-1).env;
+  assert.equal(environment.PUBLIC_RUNNER_APPROVED_COMMIT, "${{ vars.SCOPERANGE_APPROVED_PUBLIC_COMMIT }}");
+  assert.equal(
+    environment.PUBLIC_RUNNER_APPROVED_COMMIT_BINDING_STATE,
+    "${{ vars.SCOPERANGE_APPROVED_PUBLIC_COMMIT_BINDING_STATE }}"
+  );
+  assert.notEqual(environment.PUBLIC_RUNNER_APPROVED_COMMIT, environment.PUBLIC_RUNNER_COMMIT);
+  assert.doesNotMatch(fs.readFileSync(candidatePath, "utf8"), /PUBLIC_RUNNER_APPROVED_COMMIT"\s*:\s*"0{40}"/u);
+});
+
+test("the inactive candidate explicitly disables dependency caching", () => {
+  const candidate = readJson(candidatePath);
+  const setupNode = candidate.jobs.gate.steps.find((step) => step.name === "Select pinned Node.js");
+  assert.equal(setupNode.with["package-manager-cache"], false);
+});
+
+test("activation, identity, and exact-target authorities remain unconfigured", () => {
+  assert.equal(ACTIVATION_AUTHORIZED, false);
+  assert.deepEqual(APPROVED_COMMIT_BINDING_CONTRACT, {
+    schemaVersion: "scoperange-approved-public-commit-binding-v1",
+    source: "external_post_merge_governance",
+    exactCommitRequired: true,
+    embeddedSelfHashAllowed: false,
+    defaultBranchFallbackAllowed: false,
+    configured: false
+  });
+  assert.deepEqual(PRODUCTION_IDENTITY_CONTRACT, {
+    schemaVersion: "scoperange-production-identity-claims-v1",
+    requiredClaims: [
+      "audience",
+      "repository_id",
+      "repository_owner_id",
+      "ref",
+      "workflow_ref",
+      "event_name",
+      "sha",
+      "run_attempt",
+      "environment"
+    ],
+    shortLivedIdentityRequired: true,
+    broadFallbackAllowed: false,
+    configured: false
+  });
+  assert.deepEqual(TARGET_BINDING_CONTRACT, {
+    schemaVersion: "scoperange-exact-target-binding-v1",
+    requiredClaims: ["provider_account_digest", "target_digest", "identity_claims_digest"],
+    exactTargetCount: 1,
+    providerSideBindingRequired: true,
+    rawConnectionStringAllowed: false,
+    implicitTargetAllowed: false,
+    callerOverrideAllowed: false,
+    configured: false,
+    writerConnected: false
+  });
+});
+
+test("the recurrence contract accepts only a current durable lease and a fresh uncancelled invocation", async (t) => {
+  const now = new Date("2026-07-27T09:17:00.000Z");
+  const valid = {
+    PUBLIC_RUNNER_LEASE_STATE: "held",
+    PUBLIC_RUNNER_LEASE_RECEIPT: `sha256:${"a".repeat(64)}`,
+    PUBLIC_RUNNER_LEASE_EXPIRES_AT: "2026-07-27T09:27:00.000Z",
+    PUBLIC_RUNNER_MISSED_RUN_STATE: "on_time",
+    PUBLIC_RUNNER_RESUME_STATE: "fresh",
+    PUBLIC_RUNNER_CANCELLATION_STATE: "clear",
+    PUBLIC_RUNNER_OVERLAP_STATE: "clear"
+  };
+  assert.deepEqual(evaluateRecurrenceGate(valid, now), { accepted: true });
+
+  for (const [name, overrides, reasonCode] of [
+    ["missing durable lease", { PUBLIC_RUNNER_LEASE_STATE: "unconfigured" }, "lease_not_held"],
+    ["malformed lease receipt", { PUBLIC_RUNNER_LEASE_RECEIPT: "opaque-canary" }, "lease_receipt_rejected"],
+    ["expired lease", { PUBLIC_RUNNER_LEASE_EXPIRES_AT: "2026-07-27T09:16:59.999Z" }, "lease_window_rejected"],
+    ["overlong lease", { PUBLIC_RUNNER_LEASE_EXPIRES_AT: "2026-07-27T09:27:00.001Z" }, "lease_window_rejected"],
+    ["missed execution", { PUBLIC_RUNNER_MISSED_RUN_STATE: "missed" }, "missed_run_no_catch_up"],
+    ["implicit resume", { PUBLIC_RUNNER_RESUME_STATE: "resume" }, "resume_not_authorized"],
+    ["cancellation", { PUBLIC_RUNNER_CANCELLATION_STATE: "cancelled" }, "invocation_cancelled"],
+    ["overlap", { PUBLIC_RUNNER_OVERLAP_STATE: "active" }, "active_overlap"]
+  ]) {
+    await t.test(name, () => {
+      assert.deepEqual(evaluateRecurrenceGate({ ...valid, ...overrides }, now), { reasonCode });
+    });
+  }
+  assert.deepEqual(RECURRENCE_CONTRACT, {
+    schemaVersion: "scoperange-public-runner-recurrence-v1",
+    durableLeaseRequired: true,
+    maximumLeaseSeconds: 600,
+    missedRunCatchUpAllowed: false,
+    implicitResumeAllowed: false,
+    cancellationMustFailClosed: true,
+    overlapMustFailClosed: true,
+    adapterConfigured: false
+  });
+});
+
+test("runtime evaluation rejects an unverified external commit binding before later gates", () => {
+  const result = evaluateRuntimeGate({
+    PUBLIC_RUNNER_EXPECTED_REPOSITORY: "jeremiahG29/scoperange-daily-runner",
+    PUBLIC_RUNNER_REPOSITORY: "jeremiahG29/scoperange-daily-runner",
+    PUBLIC_RUNNER_WORKFLOW_REF: "jeremiahG29/scoperange-daily-runner/.github/workflows/scoperange-daily.yml@refs/heads/main",
+    PUBLIC_RUNNER_EVENT_NAME: "schedule",
+    PUBLIC_RUNNER_EVENT_SCHEDULE: "17 09 * * *",
+    PUBLIC_RUNNER_REF: "refs/heads/main",
+    PUBLIC_RUNNER_RUN_ATTEMPT: "1",
+    PUBLIC_RUNNER_COMMIT: "a".repeat(40),
+    PUBLIC_RUNNER_APPROVED_COMMIT: "a".repeat(40),
+    PUBLIC_RUNNER_APPROVED_COMMIT_BINDING_STATE: "unconfigured"
+  }, new Date("2026-07-27T09:17:00.000Z"), `sha256:${"b".repeat(64)}`);
+  assert.deepEqual(result, { reasonCode: "approved_commit_binding_unverified" });
+});
+
+test("zero-effect receipts never reflect untrusted reason or configuration values", () => {
+  const canary = "private-value-canary";
+  const receipt = createZeroEffectReceipt({
+    reasonCode: canary,
+    now: new Date("2026-07-27T09:17:00.000Z"),
+    sourceLockDigest: `sha256:${"c".repeat(64)}`
+  });
+  assert.deepEqual(Object.keys(receipt), [
+    "schemaVersion",
+    "runDay",
+    "disposition",
+    "sourceLockDigestPrefix",
+    "stage",
+    "durationClass",
+    "reasonCode",
+    "finalClassification",
+    "effects",
+    "productionAuthority"
+  ]);
+  assert.equal(receipt.reasonCode, "unknown_rejection");
+  assert.doesNotMatch(JSON.stringify(receipt), new RegExp(canary, "u"));
+
+  const lines = [];
+  execute({
+    environment: {
+      PUBLIC_RUNNER_MODE: "public_runner_candidate",
+      PUBLIC_RUNNER_REPOSITORY: canary
+    },
+    now: new Date("2026-07-27T09:17:00.000Z"),
+    log: (line) => lines.push(line)
+  });
+  assert.equal(lines.length, 1);
+  assert.deepEqual(Object.keys(JSON.parse(lines[0])), Object.keys(receipt));
+  assert.doesNotMatch(lines[0], new RegExp(canary, "u"));
 });

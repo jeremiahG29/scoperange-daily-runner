@@ -7,3 +7,13 @@ The source lock identifies one immutable private commit and a deterministic five
 Standard GitHub-hosted runners in a public repository are currently free, but that statement is conditional on public visibility and standard runners. Larger runners, artifacts, caches, packages, retries, and alternate triggers are excluded. Public scheduled workflows may be disabled after 60 days without repository activity, so recovery is fail-closed and never catches up automatically.
 
 Credential provisioning, workflow enablement or invocation, production connection, evidence work, promotion, and public activation each require separate authorization.
+
+## Activation-contract repair
+
+The inactive candidate now models an external post-merge binding for the exact approved public commit. The binding is deliberately unconfigured: no commit is embedded into the commit that must approve itself, and no default-branch fallback is allowed. Dependency caching is explicitly disabled.
+
+Recurrence is also contract-only. A future invocation would need a current bounded durable-lease receipt, an on-time schedule state, a fresh non-resumed invocation, a clear cancellation state, and a clear overlap state. No lease adapter, missed-run monitor, resume authority, or cancellation service is connected.
+
+Future production identity requires short-lived claims for audience, repository and owner identity, protected ref, immutable workflow identity, scheduled event, exact commit, first attempt, and protected environment. Future target selection requires one provider-side target binding expressed through opaque digests, with raw target identifiers excluded from public configuration and logs. Both contracts are unconfigured, forbid broad or implicit fallback, and provide no connection or writer authority.
+
+Operational output remains a fixed-schema zero-effect receipt. Unrecognized reason text and configuration values are never reflected into that receipt. Private checkout output, credential material, targets, customer data, evidence, and pricing data remain forbidden from public logs.
