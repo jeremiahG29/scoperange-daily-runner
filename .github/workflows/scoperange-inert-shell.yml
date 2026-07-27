@@ -1,0 +1,20 @@
+{
+  "name": "ScopeRange inert public shell",
+  "on": {
+    "workflow_call": {}
+  },
+  "permissions": {},
+  "jobs": {
+    "inert": {
+      "name": "Inert ScopeRange shell - disabled and never executed",
+      "if": "${{ false }}",
+      "runs-on": "ubuntu-24.04",
+      "steps": [
+        {
+          "name": "Defensive failure if the skip guard is removed",
+          "run": "exit 1"
+        }
+      ]
+    }
+  }
+}

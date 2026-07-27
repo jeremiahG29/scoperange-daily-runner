@@ -1,10 +1,11 @@
 {
-  "schemaVersion": "scoperange-public-runner-exposure-v1",
-  "status": "inert_public_package_only",
+  "schemaVersion": "scoperange-public-runner-exposure-v2",
+  "status": "inert_workflow_registered_disabled",
   "proposedRepository": "jeremiahG29/scoperange-daily-runner",
-  "publicRepositoryCreated": false,
+  "publicRepositoryCreated": true,
   "privateSourceCopied": false,
   "publicFiles": [
+    ".github/workflows/scoperange-inert-shell.yml",
     "README.public.md",
     "SECURITY.public.md",
     "bootstrap/contract.js",
@@ -15,8 +16,26 @@
     "bootstrap/source-lock.js",
     "inactive-public-daily-workflow.yml",
     "public-exposure-contract.json",
-    "source-lock.example.json"
+    "source-lock.example.json",
+    "tests/inert-workflow-registration.test.mjs"
   ],
+  "registeredWorkflow": {
+    "path": ".github/workflows/scoperange-inert-shell.yml",
+    "providerStateRequired": "disabled",
+    "onlyTrigger": "workflow_call",
+    "inputCount": 0,
+    "outputCount": 0,
+    "secretCount": 0,
+    "topLevelPermissions": "none",
+    "jobCount": 1,
+    "unconditionalJobSkip": true,
+    "defensiveFailure": true,
+    "externalActionCount": 0,
+    "runtimeInvocationCount": 0,
+    "executionAuthorized": false,
+    "productionAuthority": false,
+    "pricingAuthority": false
+  },
   "license": {
     "included": false,
     "reason": "no_new_public_license_authority_granted"
