@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "scoperange-public-runner-source-lock-v1",
+  "lockVersion": "canonical-f2c06fe-v1",
+  "repository": "jeremiahG29/scopematch",
+  "approvedCommit": "f2c06fe3183737afef712275828b9252b28fec3d",
+  "requiredAncestor": "e5ea15c7807f66f0e838876f93ffa581d22d0f5c",
+  "approvedParent": "e5ea15c7807f66f0e838876f93ffa581d22d0f5c",
+  "approvedTree": "835e8e9ea942a4fac6e66155f167c3c186ddfda6",
+  "bundleRoot": "scoperange/pricing-intelligence/github-actions",
+  "allowedPaths": [
+    "scoperange/pricing-intelligence/github-actions/contract.js",
+    "scoperange/pricing-intelligence/github-actions/entry.js",
+    "scoperange/pricing-intelligence/github-actions/operational-receipt.js",
+    "scoperange/pricing-intelligence/github-actions/package.json",
+    "scoperange/pricing-intelligence/github-actions/runtime-gate.js"
+  ],
+  "allowedBundleDigest": "sha256:2669e547eba2915cf43c8dd9f729391f72b229be51a7fc47bdaf0c4a368c1d1f",
+  "fetch": {
+    "refType": "commit_only",
+    "allowedRefs": [],
+    "fallbackAllowed": false,
+    "tagsAllowed": false,
+    "branchesAllowed": false,
+    "submodulesAllowed": false,
+    "lfsAllowed": false,
+    "credentialHelperAllowed": false,
+    "hostKeyChecking": "strict_github_host_keys_only"
+  },
+  "credential": {
+    "type": "repository_scoped_read_only_deploy_key",
+    "repositoryCount": 1,
+    "write": false,
+    "created": false
+  },
+  "activationAuthorized": false
+}

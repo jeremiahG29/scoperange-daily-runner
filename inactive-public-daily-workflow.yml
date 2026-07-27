@@ -1,0 +1,58 @@
+{
+  "name": "ScopeRange public daily runner (inactive candidate)",
+  "on": {
+    "schedule": [
+      { "cron": "17 09 * * *" }
+    ]
+  },
+  "permissions": {
+    "contents": "read"
+  },
+  "concurrency": {
+    "group": "scoperange-public-daily-v1",
+    "cancel-in-progress": false
+  },
+  "jobs": {
+    "gate": {
+      "if": "github.repository == 'jeremiahG29/scoperange-daily-runner' && github.workflow_ref == 'jeremiahG29/scoperange-daily-runner/.github/workflows/scoperange-daily.yml@refs/heads/main' && github.event_name == 'schedule' && github.event.schedule == '17 09 * * *' && github.ref == 'refs/heads/main' && github.run_attempt == 1",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "steps": [
+        {
+          "name": "Checkout pinned public control plane",
+          "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+          "with": {
+            "persist-credentials": false,
+            "fetch-depth": 1
+          }
+        },
+        {
+          "name": "Select pinned Node.js",
+          "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+          "with": {
+            "node-version": "24.18.0"
+          }
+        },
+        {
+          "name": "Evaluate inert non-secret gate",
+          "run": "node bootstrap/entry.js",
+          "env": {
+            "PUBLIC_RUNNER_MODE": "disabled",
+            "PUBLIC_RUNNER_REPOSITORY": "${{ github.repository }}",
+            "PUBLIC_RUNNER_EXPECTED_REPOSITORY": "jeremiahG29/scoperange-daily-runner",
+            "PUBLIC_RUNNER_WORKFLOW_REF": "${{ github.workflow_ref }}",
+            "PUBLIC_RUNNER_EVENT_NAME": "${{ github.event_name }}",
+            "PUBLIC_RUNNER_EVENT_SCHEDULE": "${{ github.event.schedule }}",
+            "PUBLIC_RUNNER_REF": "${{ github.ref }}",
+            "PUBLIC_RUNNER_RUN_ATTEMPT": "${{ github.run_attempt }}",
+            "PUBLIC_RUNNER_COMMIT": "${{ github.sha }}",
+            "PUBLIC_RUNNER_APPROVED_COMMIT": "0000000000000000000000000000000000000000",
+            "PUBLIC_RUNNER_SOURCE_LOCK_DIGEST": "sha256:09b3c1fba0edd320aa59d2918f7e9398f5530faa62161824f151505842d35ecf",
+            "PUBLIC_RUNNER_OVERLAP_STATE": "unverified",
+            "PUBLIC_RUNNER_LIFECYCLE_STATE": "ready"
+          }
+        }
+      ]
+    }
+  }
+}
