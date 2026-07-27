@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "scoperange-public-runner-exposure-v2",
+  "schemaVersion": "scoperange-public-runner-exposure-v3",
   "status": "inert_workflow_registered_disabled",
   "proposedRepository": "jeremiahG29/scoperange-daily-runner",
   "publicRepositoryCreated": true,
@@ -9,16 +9,20 @@
     "README.public.md",
     "SECURITY.public.md",
     "bootstrap/contract.js",
+    "bootstrap/disabled-production-connection.js",
     "bootstrap/entry.js",
     "bootstrap/operational-receipt.js",
     "bootstrap/package.json",
     "bootstrap/runtime-gate.js",
     "bootstrap/source-lock.js",
+    "bootstrap/synthetic-identity-receipt.js",
     "bootstrap/synthetic-recurrence-adapter.js",
     "bootstrap/synthetic-source-fetch.js",
+    "bootstrap/synthetic-target-capability.js",
     "inactive-public-daily-workflow.yml",
     "public-exposure-contract.json",
     "source-lock.example.json",
+    "tests/capability-contracts.test.mjs",
     "tests/inert-workflow-registration.test.mjs"
   ],
   "registeredWorkflow": {
@@ -53,6 +57,43 @@
       "productionDurability": false,
       "networkAttempts": 0,
       "configured": false,
+      "productionAuthority": false
+    }
+  },
+  "syntheticAuthorization": {
+    "identityReceipt": {
+      "signatureAlgorithm": "Ed25519",
+      "maximumReceiptSeconds": 300,
+      "replayProtection": "shared_in_memory_fixture",
+      "configured": false,
+      "credentialReads": 0,
+      "networkAttempts": 0,
+      "productionAuthority": false
+    },
+    "targetCapability": {
+      "signatureAlgorithm": "Ed25519",
+      "maximumCapabilitySeconds": 300,
+      "exactTargetCount": 1,
+      "allowedOperation": "submit_evidence_envelope",
+      "replayProtection": "shared_in_memory_fixture",
+      "pricingAuthority": false,
+      "promotionAuthority": false,
+      "configured": false,
+      "credentialReads": 0,
+      "networkAttempts": 0,
+      "productionAuthority": false
+    },
+    "productionConnection": {
+      "transport": "disabled",
+      "connectionAdapterConfigured": false,
+      "identityTokenExchangeConfigured": false,
+      "providerTargetConfigured": false,
+      "writerConnected": false,
+      "credentialReads": 0,
+      "networkAttempts": 0,
+      "providerConnections": 0,
+      "databaseConnections": 0,
+      "pricingAuthority": false,
       "productionAuthority": false
     }
   },

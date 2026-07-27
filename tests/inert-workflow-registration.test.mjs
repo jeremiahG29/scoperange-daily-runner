@@ -13,6 +13,7 @@ import {
   RECURRENCE_CONTRACT,
   TARGET_BINDING_CONTRACT
 } from "../bootstrap/contract.js";
+import * as publicContracts from "../bootstrap/contract.js";
 import { execute } from "../bootstrap/entry.js";
 import { createZeroEffectReceipt } from "../bootstrap/operational-receipt.js";
 import { evaluateRecurrenceGate, evaluateRuntimeGate } from "../bootstrap/runtime-gate.js";
@@ -188,7 +189,7 @@ test("the workflow contains no external action, runtime, credential, target, or 
 
 test("the public exposure contract closes the registered-shell authority boundary", () => {
   const exposure = readJson(exposurePath);
-  assert.equal(exposure.schemaVersion, "scoperange-public-runner-exposure-v2");
+  assert.equal(exposure.schemaVersion, "scoperange-public-runner-exposure-v3");
   assert.equal(exposure.status, "inert_workflow_registered_disabled");
   assert.equal(exposure.publicRepositoryCreated, true);
   assert.deepEqual(exposure.registeredWorkflow, {
@@ -242,7 +243,7 @@ test("the inactive candidate explicitly disables dependency caching", () => {
   assert.equal(setupNode.with["package-manager-cache"], false);
 });
 
-test("activation, identity, and exact-target authorities remain unconfigured", () => {
+test("activation and signed identity authority remain unconfigured", () => {
   assert.equal(ACTIVATION_AUTHORIZED, false);
   assert.deepEqual(APPROVED_COMMIT_BINDING_CONTRACT, {
     schemaVersion: "scoperange-approved-public-commit-binding-v1",
@@ -253,33 +254,166 @@ test("activation, identity, and exact-target authorities remain unconfigured", (
     configured: false
   });
   assert.deepEqual(PRODUCTION_IDENTITY_CONTRACT, {
-    schemaVersion: "scoperange-production-identity-claims-v1",
+    schemaVersion: "scoperange-production-identity-claims-v2",
     requiredClaims: [
-      "audience",
+      "iss",
+      "aud",
+      "sub",
+      "jti",
+      "iat",
+      "nbf",
+      "exp",
+      "repository",
       "repository_id",
+      "repository_owner",
       "repository_owner_id",
+      "repository_visibility",
       "ref",
+      "ref_type",
       "workflow_ref",
+      "workflow_sha",
       "event_name",
+      "event_schedule",
       "sha",
+      "run_id",
       "run_attempt",
-      "environment"
+      "runner_environment",
+      "environment",
+      "approved_commit",
+      "source_lock_digest",
+      "lease_receipt"
     ],
     shortLivedIdentityRequired: true,
+    maximumReceiptSeconds: 300,
+    signatureAlgorithm: "Ed25519",
+    immutableRepositoryIdsRequired: true,
+    workflowShaRequired: true,
+    replayProtectionRequired: true,
     broadFallbackAllowed: false,
+    syntheticVerifierConfigured: false,
     configured: false
   });
+});
+
+test("the public exposure contract keeps synthetic authorization and production connection inert", () => {
+  const exposure = readJson(exposurePath);
+  assert.deepEqual(exposure.syntheticAuthorization, {
+    identityReceipt: {
+      signatureAlgorithm: "Ed25519",
+      maximumReceiptSeconds: 300,
+      replayProtection: "shared_in_memory_fixture",
+      configured: false,
+      credentialReads: 0,
+      networkAttempts: 0,
+      productionAuthority: false
+    },
+    targetCapability: {
+      signatureAlgorithm: "Ed25519",
+      maximumCapabilitySeconds: 300,
+      exactTargetCount: 1,
+      allowedOperation: "submit_evidence_envelope",
+      replayProtection: "shared_in_memory_fixture",
+      pricingAuthority: false,
+      promotionAuthority: false,
+      configured: false,
+      credentialReads: 0,
+      networkAttempts: 0,
+      productionAuthority: false
+    },
+    productionConnection: {
+      transport: "disabled",
+      connectionAdapterConfigured: false,
+      identityTokenExchangeConfigured: false,
+      providerTargetConfigured: false,
+      writerConnected: false,
+      credentialReads: 0,
+      networkAttempts: 0,
+      providerConnections: 0,
+      databaseConnections: 0,
+      pricingAuthority: false,
+      productionAuthority: false
+    }
+  });
+});
+
+test("exact-target authority remains unconfigured", () => {
   assert.deepEqual(TARGET_BINDING_CONTRACT, {
-    schemaVersion: "scoperange-exact-target-binding-v1",
-    requiredClaims: ["provider_account_digest", "target_digest", "identity_claims_digest"],
+    schemaVersion: "scoperange-exact-target-binding-v2",
+    requiredClaims: [
+      "iss",
+      "aud",
+      "jti",
+      "iat",
+      "nbf",
+      "exp",
+      "identity_claims_digest",
+      "provider_account_digest",
+      "target_digest",
+      "operation",
+      "envelope_digest",
+      "approved_commit",
+      "source_lock_digest",
+      "lease_receipt",
+      "run_id",
+      "run_attempt",
+      "idempotency_key_digest",
+      "target_count",
+      "pricing_authority",
+      "promotion_authority",
+      "live_price_write_allowed"
+    ],
     exactTargetCount: 1,
+    signedCapabilityRequired: true,
+    signatureAlgorithm: "Ed25519",
+    maximumCapabilitySeconds: 300,
+    replayProtectionRequired: true,
+    identityReceiptBindingRequired: true,
+    evidenceEnvelopeDigestRequired: true,
+    leaseBindingRequired: true,
+    approvedCommitBindingRequired: true,
+    idempotencyRequired: true,
+    allowedOperation: "submit_evidence_envelope",
     providerSideBindingRequired: true,
     rawConnectionStringAllowed: false,
     implicitTargetAllowed: false,
     callerOverrideAllowed: false,
+    pricingAuthority: false,
+    promotionAuthority: false,
     configured: false,
     writerConnected: false
   });
+});
+
+test("production connection authority is structurally disabled", () => {
+  assert.deepEqual(publicContracts.PRODUCTION_CONNECTION_CONTRACT, {
+    schemaVersion: "scoperange-production-connection-v1",
+    transport: "disabled",
+    networkAllowed: false,
+    redirectsAllowed: false,
+    rawTargetIdentifierAllowed: false,
+    rawConnectionStringAllowed: false,
+    credentialLookupAllowed: false,
+    directDatabaseConnectionAllowed: false,
+    dataApiConnectionAllowed: false,
+    identityTokenExchangeConfigured: false,
+    providerTargetConfigured: false,
+    connectionAdapterConfigured: false,
+    writerConnected: false,
+    secretReads: 0,
+    networkAttempts: 0,
+    providerConnections: 0,
+    databaseConnections: 0,
+    productionAuthority: "none"
+  });
+});
+
+test("caller-supplied identity and target state cannot enter runtime configuration", () => {
+  assert.equal(publicContracts.CONFIGURATION_KEYS.includes("PUBLIC_RUNNER_IDENTITY_STATE"), false);
+  assert.equal(publicContracts.CONFIGURATION_KEYS.includes("PUBLIC_RUNNER_TARGET_BINDING_STATE"), false);
+  const candidate = readJson(candidatePath);
+  const environment = candidate.jobs.gate.steps.at(-1).env;
+  assert.equal("PUBLIC_RUNNER_IDENTITY_STATE" in environment, false);
+  assert.equal("PUBLIC_RUNNER_TARGET_BINDING_STATE" in environment, false);
 });
 
 test("the recurrence contract accepts only a current durable lease and a fresh uncancelled invocation", async (t) => {

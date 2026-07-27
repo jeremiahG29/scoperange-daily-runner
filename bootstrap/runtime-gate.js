@@ -1,13 +1,11 @@
 import {
-  ACTIVATION_AUTHORIZED,
   APPROVED_COMMIT_BINDING_CONTRACT,
   EXPECTED_REF,
   EXPECTED_REPOSITORY,
   EXPECTED_SCHEDULE,
   EXPECTED_WORKFLOW_REF,
   PRODUCTION_IDENTITY_CONTRACT,
-  RECURRENCE_CONTRACT,
-  TARGET_BINDING_CONTRACT
+  RECURRENCE_CONTRACT
 } from "./contract.js";
 
 const COMMIT = /^[0-9a-f]{40}$/u;
@@ -59,17 +57,11 @@ export function evaluateRuntimeGate(configuration, now, expectedSourceLockDigest
   if (!recurrence.accepted) return recurrence;
   if (configuration.PUBLIC_RUNNER_LIFECYCLE_STATE !== "ready") return reject("invocation_cancelled");
   if (!PRODUCTION_IDENTITY_CONTRACT.configured) return reject("identity_contract_unconfigured");
-  if (configuration.PUBLIC_RUNNER_IDENTITY_STATE !== "verified") return reject("identity_unverified");
-  if (!TARGET_BINDING_CONTRACT.configured || TARGET_BINDING_CONTRACT.writerConnected) {
-    return reject("target_contract_unconfigured");
-  }
-  if (configuration.PUBLIC_RUNNER_TARGET_BINDING_STATE !== "verified") return reject("target_unbound");
   if (!(now instanceof Date) || !Number.isFinite(now.valueOf())) return reject("timing_rejected");
 
   const utcMilliseconds = (((now.getUTCHours() * 60) + now.getUTCMinutes()) * 60 * 1000)
     + (now.getUTCSeconds() * 1000) + now.getUTCMilliseconds();
   if (utcMilliseconds < EARLIEST_UTC_MILLISECONDS) return reject("schedule_not_due");
   if (utcMilliseconds > LATEST_UTC_MILLISECONDS) return reject("missed_run_no_catch_up");
-  if (!ACTIVATION_AUTHORIZED) return reject("activation_not_authorized");
-  return reject("activation_not_authorized");
+  return reject("identity_unverified");
 }
