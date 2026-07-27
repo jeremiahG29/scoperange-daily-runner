@@ -1,0 +1,36 @@
+{
+  "schemaVersion": "scoperange-public-runner-exposure-v1",
+  "status": "inert_public_package_only",
+  "proposedRepository": "jeremiahG29/scoperange-daily-runner",
+  "publicRepositoryCreated": false,
+  "privateSourceCopied": false,
+  "publicFiles": [
+    "README.public.md",
+    "SECURITY.public.md",
+    "bootstrap/contract.js",
+    "bootstrap/entry.js",
+    "bootstrap/operational-receipt.js",
+    "bootstrap/package.json",
+    "bootstrap/runtime-gate.js",
+    "bootstrap/source-lock.js",
+    "inactive-public-daily-workflow.yml",
+    "public-exposure-contract.json",
+    "source-lock.example.json"
+  ],
+  "license": {
+    "included": false,
+    "reason": "no_new_public_license_authority_granted"
+  },
+  "exposure": {
+    "automationControlPlaneOnly": true,
+    "immutableSourceIdentifiersAndDigests": true,
+    "proprietaryApplicationSource": false,
+    "estimationAlgorithms": false,
+    "calibrationOrPriceValues": false,
+    "evidenceOrProposalContents": false,
+    "providerOrDatabaseMetadata": false,
+    "customerOrBusinessData": false,
+    "credentialsOrTargets": false,
+    "internalHistoricalReports": false
+  }
+}
