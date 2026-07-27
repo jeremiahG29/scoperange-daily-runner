@@ -57,9 +57,7 @@
             "PUBLIC_RUNNER_RESUME_STATE": "disabled",
             "PUBLIC_RUNNER_CANCELLATION_STATE": "unverified",
             "PUBLIC_RUNNER_OVERLAP_STATE": "unverified",
-            "PUBLIC_RUNNER_LIFECYCLE_STATE": "ready",
-            "PUBLIC_RUNNER_IDENTITY_STATE": "unconfigured",
-            "PUBLIC_RUNNER_TARGET_BINDING_STATE": "unconfigured"
+            "PUBLIC_RUNNER_LIFECYCLE_STATE": "ready"
           }
         }
       ]

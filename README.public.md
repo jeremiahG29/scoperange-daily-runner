@@ -25,3 +25,13 @@ The credentialless source adapter can verify an exact bundle in a caller-supplie
 The recurrence adapter uses a shared in-memory fixture store to exercise lease, overlap, missed-run, expiry, replay, cancellation, and resume behavior. The store is explicitly non-durable and synthetic-only. Its lease receipts are opaque digests, its rejection receipts do not reflect caller identifiers, and every adapter instance has zero network and production authority.
 
 Neither adapter is configured, registered, or connected. They do not create a workflow, schedule, timer, credential, identity, target, writer, provider connection, production connection, ingestion path, promotion path, or pricing path.
+
+## Synthetic authorization contracts
+
+The identity verifier accepts only an Ed25519-signed synthetic receipt with the complete bounded workload claim set. It checks the issuer, audience, subject, immutable repository and owner identifiers, protected ref, exact workflow and workflow commit, scheduled event, first run attempt, environment, approved commit, source-lock digest, lease receipt, signature, five-minute lifetime, and one-use token identifier. Successful verification returns only an opaque claims digest and expiry. The verifier does not request an OIDC token, read a credential, contact GitHub, select an identity, or configure trust.
+
+The target verifier accepts only an Ed25519-signed synthetic capability bound to that opaque identity verification, one provider-side account digest, one target digest, one evidence-envelope digest, the approved commit, source lock, lease, run, and idempotency binding. Its sole operation is `submit_evidence_envelope`; pricing, promotion, and live-price authority are fixed to none. Token and idempotency replay state is shared only inside an in-memory synthetic fixture.
+
+Caller-supplied identity and target state strings are excluded from the bootstrap environment contract. The identity and target verifiers are not imported by the entry point or either workflow description. The production-connection interface is structurally disabled and returns a fixed zero-effect rejection for every connection-shaped input. No public key, private key, audience, environment, provider mapping, target, broker, endpoint, writer, or connection is configured.
+
+A future production design would require a separately reviewed trust boundary to validate real workload identity, map it privately to exactly one evidence-only writer, and issue a one-use capability. This package does not implement or authorize that boundary.
