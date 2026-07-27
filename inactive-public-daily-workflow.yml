@@ -30,7 +30,8 @@
           "name": "Select pinned Node.js",
           "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
           "with": {
-            "node-version": "24.18.0"
+            "node-version": "24.18.0",
+            "package-manager-cache": false
           }
         },
         {
@@ -46,10 +47,19 @@
             "PUBLIC_RUNNER_REF": "${{ github.ref }}",
             "PUBLIC_RUNNER_RUN_ATTEMPT": "${{ github.run_attempt }}",
             "PUBLIC_RUNNER_COMMIT": "${{ github.sha }}",
-            "PUBLIC_RUNNER_APPROVED_COMMIT": "0000000000000000000000000000000000000000",
+            "PUBLIC_RUNNER_APPROVED_COMMIT": "${{ vars.SCOPERANGE_APPROVED_PUBLIC_COMMIT }}",
+            "PUBLIC_RUNNER_APPROVED_COMMIT_BINDING_STATE": "${{ vars.SCOPERANGE_APPROVED_PUBLIC_COMMIT_BINDING_STATE }}",
             "PUBLIC_RUNNER_SOURCE_LOCK_DIGEST": "sha256:09b3c1fba0edd320aa59d2918f7e9398f5530faa62161824f151505842d35ecf",
+            "PUBLIC_RUNNER_LEASE_STATE": "unconfigured",
+            "PUBLIC_RUNNER_LEASE_RECEIPT": "",
+            "PUBLIC_RUNNER_LEASE_EXPIRES_AT": "",
+            "PUBLIC_RUNNER_MISSED_RUN_STATE": "unverified",
+            "PUBLIC_RUNNER_RESUME_STATE": "disabled",
+            "PUBLIC_RUNNER_CANCELLATION_STATE": "unverified",
             "PUBLIC_RUNNER_OVERLAP_STATE": "unverified",
-            "PUBLIC_RUNNER_LIFECYCLE_STATE": "ready"
+            "PUBLIC_RUNNER_LIFECYCLE_STATE": "ready",
+            "PUBLIC_RUNNER_IDENTITY_STATE": "unconfigured",
+            "PUBLIC_RUNNER_TARGET_BINDING_STATE": "unconfigured"
           }
         }
       ]
