@@ -14,6 +14,8 @@
     "bootstrap/package.json",
     "bootstrap/runtime-gate.js",
     "bootstrap/source-lock.js",
+    "bootstrap/synthetic-recurrence-adapter.js",
+    "bootstrap/synthetic-source-fetch.js",
     "inactive-public-daily-workflow.yml",
     "public-exposure-contract.json",
     "source-lock.example.json",
@@ -35,6 +37,24 @@
     "executionAuthorized": false,
     "productionAuthority": false,
     "pricingAuthority": false
+  },
+  "syntheticAdapters": {
+    "sourceFetch": {
+      "localGitObjectFixtureOnly": true,
+      "sourceBytesReturned": false,
+      "credentialReads": 0,
+      "networkAttempts": 0,
+      "executionAttempts": 0,
+      "configured": false,
+      "productionAuthority": false
+    },
+    "recurrence": {
+      "sharedInMemoryFixtureOnly": true,
+      "productionDurability": false,
+      "networkAttempts": 0,
+      "configured": false,
+      "productionAuthority": false
+    }
   },
   "license": {
     "included": false,
