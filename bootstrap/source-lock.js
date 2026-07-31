@@ -282,6 +282,78 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, keyMaterial, ope
     child.once("close", () => managedChildren.delete(child));
     return Object.freeze({ pid: child.pid });
   };
+  const runManagedProcess = ({ program, args, cwd, env, stdin = "", maxOutputBytes } = {}) => {
+    const relativeCwd = typeof cwd === "string" ? path.relative(workspacePath, cwd) : "..";
+    if (typeof program !== "string" || !program || !Array.isArray(args)
+      || args.some((arg) => typeof arg !== "string")
+      || typeof cwd !== "string" || !path.isAbsolute(cwd)
+      || relativeCwd.startsWith("..") || path.isAbsolute(relativeCwd)
+      || !env || typeof env !== "object" || Array.isArray(env)
+      || Object.entries(env).some(([key, value]) => !key || typeof value !== "string")
+      || typeof stdin !== "string" || Buffer.byteLength(stdin, "utf8") > 64 * 1024
+      || !Number.isInteger(maxOutputBytes) || maxOutputBytes < 1 || maxOutputBytes > 64 * 1024) {
+      return Promise.reject(new Error("managed process rejected"));
+    }
+    return new Promise((resolve, reject) => {
+      const child = spawn(program, args, {
+        cwd,
+        env: {
+          PATH: process.env.PATH ?? "",
+          SystemRoot: process.env.SystemRoot ?? "",
+          ...env
+        },
+        windowsHide: true,
+        shell: false,
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: process.platform !== "win32"
+      });
+      let stdout = "";
+      let stderr = "";
+      let outputBytes = 0;
+      let rejectionReason = null;
+      let settled = false;
+      const finish = (error, value) => {
+        if (settled) return;
+        settled = true;
+        operationController.signal.removeEventListener("abort", onAbort);
+        managedChildren.delete(child);
+        if (error) reject(error);
+        else resolve(value);
+      };
+      const requestTermination = (reason) => {
+        rejectionReason ??= reason;
+        void terminateManagedChild(child);
+      };
+      const onAbort = () => requestTermination("managed process cancelled");
+      const onData = (target) => (chunk) => {
+        outputBytes += chunk.length;
+        if (outputBytes > maxOutputBytes) {
+          requestTermination("managed process output rejected");
+        } else if (target === "stdout") {
+          stdout += chunk.toString("utf8");
+        } else {
+          stderr += chunk.toString("utf8");
+        }
+      };
+      child.stdout.on("data", onData("stdout"));
+      child.stderr.on("data", onData("stderr"));
+      child.once("error", (error) => finish(error));
+      child.once("close", (exitCode) => {
+        if (rejectionReason || operationController.signal.aborted) {
+          finish(new Error(rejectionReason ?? "managed process cancelled"));
+        } else {
+          finish(null, { exitCode, stdout, stderr });
+        }
+      });
+      if (!Number.isInteger(child.pid) || child.pid < 1) {
+        finish(new Error("managed process start failed"));
+        return;
+      }
+      managedChildren.add(child);
+      operationController.signal.addEventListener("abort", onAbort, { once: true });
+      child.stdin.end(stdin);
+    });
+  };
   try {
     if (signal?.aborted) throw new Error("ephemeral_operation_cancelled");
     const operationPromise = Promise.resolve().then(() => operation({
@@ -290,7 +362,8 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, keyMaterial, ope
       identityPath,
       signal: operationController.signal,
       registerCleanup,
-      spawnManaged
+      spawnManaged,
+      runManagedProcess
     }));
     const timeoutPromise = new Promise((_, reject) => {
       timeout = setTimeout(() => {
@@ -357,49 +430,6 @@ function portableQuotedPath(value) {
   return `"${value.replace(/\\/gu, "/")}"`;
 }
 
-function defaultSpawnImpl({ program, args, cwd, env, signal, maxOutputBytes }) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(program, args, {
-      cwd,
-      env: {
-        PATH: process.env.PATH ?? "",
-        SystemRoot: process.env.SystemRoot ?? "",
-        ...env
-      },
-      windowsHide: true,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let stdout = "";
-    let stderr = "";
-    let outputBytes = 0;
-    let rejected = false;
-    const onData = (target) => (chunk) => {
-      outputBytes += chunk.length;
-      if (outputBytes > maxOutputBytes) {
-        rejected = true;
-        child.kill("SIGTERM");
-        return;
-      }
-      if (target === "stdout") stdout += chunk.toString("utf8");
-      else stderr += chunk.toString("utf8");
-    };
-    const onAbort = () => child.kill("SIGTERM");
-    signal.addEventListener("abort", onAbort, { once: true });
-    child.stdout.on("data", onData("stdout"));
-    child.stderr.on("data", onData("stderr"));
-    child.once("error", (error) => {
-      signal.removeEventListener("abort", onAbort);
-      reject(error);
-    });
-    child.once("close", (exitCode) => {
-      signal.removeEventListener("abort", onAbort);
-      if (rejected || signal.aborted) reject(new Error("source process rejected"));
-      else resolve({ exitCode, stdout, stderr });
-    });
-  });
-}
-
 async function runFetchCommand({ spawnImpl, args, cwd, env, signal }) {
   const result = await spawnImpl({
     program: "git",
@@ -419,14 +449,14 @@ async function runFetchCommand({ spawnImpl, args, cwd, env, signal }) {
 export async function fetchLockedPrivateSource({
   lock,
   keyMaterial,
-  spawnImpl = defaultSpawnImpl,
+  spawnImpl,
   signal,
   consumeVerifiedCheckout
 } = {}) {
   try {
     validateSourceLock(lock);
     if (lock.requiredAncestor !== lock.approvedParent
-      || typeof spawnImpl !== "function"
+      || (spawnImpl !== undefined && typeof spawnImpl !== "function")
       || (consumeVerifiedCheckout !== undefined && typeof consumeVerifiedCheckout !== "function")
       || !signal || typeof signal.aborted !== "boolean"
       || typeof signal.addEventListener !== "function") {
@@ -436,7 +466,14 @@ export async function fetchLockedPrivateSource({
       keyMaterial,
       signal,
       timeoutMs: 90_000,
-      operation: async ({ workspacePath, checkoutPath, identityPath, signal: operationSignal }) => {
+      operation: async ({
+        workspacePath,
+        checkoutPath,
+        identityPath,
+        signal: operationSignal,
+        runManagedProcess
+      }) => {
+        const selectedSpawnImpl = spawnImpl ?? runManagedProcess;
         const sshCommand = [
           "ssh",
           "-F", "/dev/null",
@@ -456,14 +493,14 @@ export async function fetchLockedPrivateSource({
           GIT_SSH_COMMAND: sshCommand
         };
         await runFetchCommand({
-          spawnImpl,
+          spawnImpl: selectedSpawnImpl,
           args: ["init", "--quiet", checkoutPath],
           cwd: workspacePath,
           env,
           signal: operationSignal
         });
         await runFetchCommand({
-          spawnImpl,
+          spawnImpl: selectedSpawnImpl,
           args: [
             "-C", checkoutPath,
             "-c", "protocol.version=2",
@@ -479,7 +516,7 @@ export async function fetchLockedPrivateSource({
           signal: operationSignal
         });
         await runFetchCommand({
-          spawnImpl,
+          spawnImpl: selectedSpawnImpl,
           args: ["-C", checkoutPath, "checkout", "--quiet", "--detach", lock.approvedCommit],
           cwd: workspacePath,
           env,
@@ -490,7 +527,8 @@ export async function fetchLockedPrivateSource({
         return consumeVerifiedCheckout({
           workspacePath,
           checkoutPath,
-          bundleRoot: lock.bundleRoot
+          bundleRoot: lock.bundleRoot,
+          runManagedProcess
         });
       }
     });

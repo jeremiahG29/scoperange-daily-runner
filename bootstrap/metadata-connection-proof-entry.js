@@ -1,5 +1,4 @@
 import { METADATA_CONNECTION_PROOF_CONTRACT } from "./metadata-connection-proof-contract.js";
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { fetchLockedPrivateSource } from "./source-lock.js";
@@ -118,48 +117,6 @@ function validPrivateReceipt(value) {
     && value.productionAuthority === "none";
 }
 
-function defaultProcessImpl({ program, args, cwd, env, stdin, signal, maxOutputBytes }) {
-  return new Promise((resolve, reject) => {
-    const child = spawn(program, args, {
-      cwd,
-      env: {
-        PATH: process.env.PATH ?? "",
-        SystemRoot: process.env.SystemRoot ?? "",
-        ...env
-      },
-      windowsHide: true,
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"]
-    });
-    let stdout = "";
-    let stderr = "";
-    let outputBytes = 0;
-    let outputRejected = false;
-    const onData = (target) => (chunk) => {
-      outputBytes += chunk.length;
-      if (outputBytes > maxOutputBytes) {
-        outputRejected = true;
-        child.kill("SIGTERM");
-      } else if (target === "stdout") stdout += chunk.toString("utf8");
-      else stderr += chunk.toString("utf8");
-    };
-    const onAbort = () => child.kill("SIGTERM");
-    signal.addEventListener("abort", onAbort, { once: true });
-    child.stdout.on("data", onData("stdout"));
-    child.stderr.on("data", onData("stderr"));
-    child.once("error", (error) => {
-      signal.removeEventListener("abort", onAbort);
-      reject(error);
-    });
-    child.once("close", (exitCode) => {
-      signal.removeEventListener("abort", onAbort);
-      if (outputRejected || signal.aborted) reject(new Error("bridge process rejected"));
-      else resolve({ exitCode, stdout, stderr });
-    });
-    child.stdin.end(stdin ?? "");
-  });
-}
-
 async function runBridgeProcess(processImpl, value) {
   const result = await processImpl({ ...value, maxOutputBytes: 64 * 1024 });
   if (!result || result.exitCode !== 0
@@ -177,7 +134,7 @@ export async function executeConfiguredMetadataProof({
   privateInput,
   signal,
   fetchImpl = fetchLockedPrivateSource,
-  processImpl = defaultProcessImpl
+  processImpl
 } = {}) {
   try {
     if (authorization !== "scoperange-metadata-proof-non-secret-gate-accepted-v1"
@@ -185,7 +142,8 @@ export async function executeConfiguredMetadataProof({
       || typeof keyMaterial !== "string" || !keyMaterial || keyMaterial.length > 16_384
       || !exactKeys(privateInput, PRIVATE_INPUT_KEYS)
       || !signal || typeof signal.aborted !== "boolean" || signal.aborted
-      || typeof fetchImpl !== "function" || typeof processImpl !== "function") {
+      || typeof fetchImpl !== "function"
+      || (processImpl !== undefined && typeof processImpl !== "function")) {
       throw new Error("bridge input rejected");
     }
     let consumed = false;
@@ -194,13 +152,15 @@ export async function executeConfiguredMetadataProof({
       lock,
       keyMaterial,
       signal,
-      consumeVerifiedCheckout: async ({ checkoutPath, workspacePath, bundleRoot }) => {
+      consumeVerifiedCheckout: async ({ checkoutPath, workspacePath, bundleRoot, runManagedProcess }) => {
         if (!path.isAbsolute(checkoutPath) || !path.isAbsolute(workspacePath)
           || bundleRoot !== lock.bundleRoot) throw new Error("checkout rejected");
         const bundlePath = path.resolve(checkoutPath, ...bundleRoot.split("/"));
         if (!bundlePath.startsWith(`${path.resolve(checkoutPath)}${path.sep}`)) throw new Error("checkout rejected");
+        const selectedProcessImpl = processImpl ?? runManagedProcess;
+        if (typeof selectedProcessImpl !== "function") throw new Error("managed process rejected");
         const cachePath = path.join(workspacePath, "npm-cache");
-        const install = await runBridgeProcess(processImpl, {
+        const install = await runBridgeProcess(selectedProcessImpl, {
           program: process.platform === "win32" ? "npm.cmd" : "npm",
           args: [
             "ci", "--ignore-scripts", "--no-audit", "--no-fund",
@@ -217,7 +177,7 @@ export async function executeConfiguredMetadataProof({
           signal
         });
         if (install.stdout !== "" || install.stderr !== "") throw new Error("install output rejected");
-        const child = await runBridgeProcess(processImpl, {
+        const child = await runBridgeProcess(selectedProcessImpl, {
           program: process.execPath,
           args: ["entry.js"],
           cwd: bundlePath,

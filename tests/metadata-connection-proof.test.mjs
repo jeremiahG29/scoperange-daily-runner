@@ -243,7 +243,11 @@ test("a verified checkout can be consumed only inside its ephemeral workspace", 
     spawnImpl: localGitSpawner(bare, []),
     signal: new AbortController().signal,
     consumeVerifiedCheckout: async (value) => {
-      assert.deepEqual(Object.keys(value).sort(), ["bundleRoot", "checkoutPath", "workspacePath"]);
+      assert.deepEqual(
+        Object.keys(value).sort(),
+        ["bundleRoot", "checkoutPath", "runManagedProcess", "workspacePath"]
+      );
+      assert.equal(typeof value.runManagedProcess, "function");
       checkoutPath = value.checkoutPath;
       assert.equal(fs.existsSync(path.join(value.checkoutPath, ...value.bundleRoot.split("/"), "entry.js")), true);
       return Object.freeze({ consumed: true });
@@ -282,6 +286,48 @@ test("fetch cancellation and failure are sanitized and leave no ephemeral worksp
     (error) => error.message === "SCOPERANGE_PUBLIC_SOURCE_FETCH_CANCELLED"
       && !error.message.includes(canary)
   );
+  const after = new Set(fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("scoperange-public-runner-")));
+  assert.deepEqual(after, before);
+});
+
+test("a stubborn real child is forcibly terminated before ephemeral cleanup completes", async (context) => {
+  const sourceLock = await import("../bootstrap/source-lock.js");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-stubborn-child-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const pidPath = path.join(directory, "child.pid");
+  const before = new Set(fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("scoperange-public-runner-")));
+  const startedAt = Date.now();
+  await assert.rejects(
+    sourceLock.withEphemeralWorkspace({
+      fakeKeyMaterial: "synthetic-key-material",
+      timeoutMs: 500,
+      operation: ({ checkoutPath, runManagedProcess, signal }) => runManagedProcess({
+        program: process.execPath,
+        args: [
+          "-e",
+          "const fs=require('node:fs');fs.writeFileSync(process.argv[1],String(process.pid));process.on('SIGTERM',()=>{});setInterval(()=>{},1000)",
+          pidPath
+        ],
+        cwd: checkoutPath,
+        env: {},
+        stdin: "",
+        signal,
+        maxOutputBytes: 1024
+      })
+    }),
+    (error) => error.message === "ephemeral_operation_timeout"
+  );
+  assert.ok(Date.now() - startedAt < 5000, "cleanup must remain bounded");
+  assert.equal(fs.existsSync(pidPath), true, "the real child must start before timeout");
+  const pid = Number.parseInt(fs.readFileSync(pidPath, "utf8"), 10);
+  assert.ok(Number.isInteger(pid) && pid > 0);
+  let childAlive = true;
+  try {
+    process.kill(pid, 0);
+  } catch {
+    childAlive = false;
+  }
+  assert.equal(childAlive, false, "the stubborn child must not survive cleanup");
   const after = new Set(fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("scoperange-public-runner-")));
   assert.deepEqual(after, before);
 });
