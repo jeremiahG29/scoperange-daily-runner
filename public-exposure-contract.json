@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "scoperange-public-runner-exposure-v3",
+  "schemaVersion": "scoperange-public-runner-exposure-v4",
   "status": "inert_workflow_registered_disabled",
   "proposedRepository": "jeremiahG29/scoperange-daily-runner",
   "publicRepositoryCreated": true,
@@ -11,6 +11,10 @@
     "bootstrap/contract.js",
     "bootstrap/disabled-production-connection.js",
     "bootstrap/entry.js",
+    "bootstrap/github-known-hosts",
+    "bootstrap/metadata-connection-proof-contract.js",
+    "bootstrap/metadata-connection-proof-entry.js",
+    "bootstrap/metadata-connection-proof-gate.js",
     "bootstrap/operational-receipt.js",
     "bootstrap/package.json",
     "bootstrap/runtime-gate.js",
@@ -23,7 +27,8 @@
     "public-exposure-contract.json",
     "source-lock.example.json",
     "tests/capability-contracts.test.mjs",
-    "tests/inert-workflow-registration.test.mjs"
+    "tests/inert-workflow-registration.test.mjs",
+    "tests/metadata-connection-proof.test.mjs"
   ],
   "registeredWorkflow": {
     "path": ".github/workflows/scoperange-inert-shell.yml",
@@ -59,6 +64,19 @@
       "configured": false,
       "productionAuthority": false
     }
+  },
+  "metadataConnectionProof": {
+    "configured": false,
+    "recognizedWorkflowPlacement": false,
+    "externalPostMergeBindingRequired": true,
+    "exactCommitRequired": true,
+    "dependencyCacheAllowed": false,
+    "credentialCreated": false,
+    "targetConfigured": false,
+    "networkAttempts": 0,
+    "databaseConnections": 0,
+    "productionAuthority": false,
+    "pricingAuthority": false
   },
   "syntheticAuthorization": {
     "identityReceipt": {
