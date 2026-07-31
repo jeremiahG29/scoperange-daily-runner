@@ -23,6 +23,7 @@
     "bootstrap/synthetic-recurrence-adapter.js",
     "bootstrap/synthetic-source-fetch.js",
     "bootstrap/synthetic-target-capability.js",
+    "inactive-metadata-connection-proof-workflow.yml",
     "inactive-public-daily-workflow.yml",
     "public-exposure-contract.json",
     "source-lock.example.json",

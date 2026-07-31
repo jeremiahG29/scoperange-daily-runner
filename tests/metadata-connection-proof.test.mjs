@@ -399,3 +399,104 @@ test("the future bridge keeps secrets out of argv, environment, cache, and outpu
   assert.equal(JSON.stringify(publicProcessShape).includes(canary), false);
   assert.equal(JSON.stringify(result).includes(canary), false);
 });
+
+test("the metadata proof workflow candidate is manual, closed, and unregistered", () => {
+  const candidatePath = path.resolve("inactive-metadata-connection-proof-workflow.yml");
+  const value = JSON.parse(fs.readFileSync(candidatePath, "utf8"));
+  assert.deepEqual(Object.keys(value), ["name", "on", "permissions", "concurrency", "jobs"]);
+  assert.deepEqual(value.on, { workflow_dispatch: {} });
+  assert.deepEqual(value.permissions, {});
+  assert.deepEqual(value.concurrency, {
+    group: "scoperange-metadata-connection-proof-v1",
+    "cancel-in-progress": false
+  });
+  assert.deepEqual(Object.keys(value.jobs), ["gate", "proof"]);
+  assert.equal(value.jobs.gate.environment, undefined);
+  assert.equal(JSON.stringify(value.jobs.gate).includes("secrets."), false);
+  assert.equal(value.jobs.gate["timeout-minutes"], 1);
+  assert.deepEqual(value.jobs.proof.needs, ["gate"]);
+  assert.equal(
+    value.jobs.proof.if,
+    "needs.gate.outputs.authorization == 'scoperange-metadata-proof-non-secret-gate-accepted-v1'"
+  );
+  assert.equal(value.jobs.proof.environment, "scoperange-production-disabled-v1");
+  assert.equal(value.jobs.proof["timeout-minutes"], 3);
+  assert.deepEqual(value.jobs.proof.permissions, { contents: "read" });
+  const actionSteps = Object.values(value.jobs).flatMap((job) => job.steps).filter((step) => step.uses);
+  assert.deepEqual([...new Set(actionSteps.map((step) => step.uses))].sort(), [
+    "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020"
+  ]);
+  const proofEnvironment = value.jobs.proof.steps.at(-1).env;
+  assert.deepEqual(Object.keys(proofEnvironment).sort(), [
+    "SCOPERANGE_CONFIG_VERSION",
+    "SCOPERANGE_CREDENTIAL_EXPIRES_AT",
+    "SCOPERANGE_CREDENTIAL_NOT_BEFORE",
+    "SCOPERANGE_CREDENTIAL_VERSION",
+    "SCOPERANGE_DB_HOST",
+    "SCOPERANGE_DB_NAME",
+    "SCOPERANGE_DB_PASSWORD",
+    "SCOPERANGE_DB_PORT",
+    "SCOPERANGE_DB_TLS_SERVER_NAME",
+    "SCOPERANGE_DB_USER",
+    "SCOPERANGE_EXPECTED_PROJECT_DIGEST",
+    "SCOPERANGE_PRIVATE_SOURCE_DEPLOY_KEY"
+  ]);
+  const raw = fs.readFileSync(candidatePath, "utf8");
+  assert.doesNotMatch(raw, /cache\/restore|cache\/save|upload-artifact|download-artifact|schedule|workflow_call/iu);
+  assert.doesNotMatch(raw, /SCOPERANGE_DB_TLS_CA|BEGIN CERTIFICATE|postgres(?:ql)?:\/\//iu);
+  assert.equal(fs.existsSync(path.resolve(".github/workflows/scoperange-metadata-proof.yml")), false);
+});
+
+test("candidate command entry points fail closed with fixed output", (context) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-cli-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const outputPath = path.join(directory, "github-output");
+  const envelope = validSyntheticGitHubEnvelope();
+  const gateResult = spawnSync(process.execPath, [path.resolve("bootstrap/metadata-connection-proof-gate.js")], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: {
+      PATH: process.env.PATH,
+      SystemRoot: process.env.SystemRoot,
+      SCOPERANGE_METADATA_REPOSITORY: envelope.repository,
+      SCOPERANGE_METADATA_REPOSITORY_ID: envelope.repositoryId,
+      SCOPERANGE_METADATA_REF: envelope.ref,
+      SCOPERANGE_METADATA_REF_PROTECTED: "true",
+      SCOPERANGE_METADATA_WORKFLOW_REF: envelope.workflowRef,
+      SCOPERANGE_METADATA_WORKFLOW_SHA: envelope.workflowSha,
+      SCOPERANGE_METADATA_EVENT_NAME: envelope.eventName,
+      SCOPERANGE_METADATA_RUN_ATTEMPT: "1",
+      SCOPERANGE_METADATA_OBSERVED_COMMIT: envelope.observedCommit,
+      SCOPERANGE_METADATA_APPROVED_COMMIT: envelope.approvedCommit,
+      SCOPERANGE_METADATA_SOURCE_LOCK_DIGEST: envelope.sourceLockDigest,
+      SCOPERANGE_METADATA_EXPECTED_SOURCE_LOCK_DIGEST: envelope.expectedSourceLockDigest,
+      SCOPERANGE_METADATA_LIFECYCLE_STATE: "clear",
+      SCOPERANGE_METADATA_DUPLICATE_STATE: "clear",
+      SCOPERANGE_METADATA_RECURRENCE_AUTHORIZED: "false",
+      SCOPERANGE_METADATA_ACQUISITION_AUTHORIZED: "false",
+      SCOPERANGE_METADATA_INGESTION_AUTHORIZED: "false",
+      SCOPERANGE_METADATA_PROMOTION_AUTHORIZED: "false",
+      SCOPERANGE_METADATA_PRICING_AUTHORIZED: "false",
+      GITHUB_OUTPUT: outputPath
+    }
+  });
+  assert.equal(gateResult.status, 0, gateResult.stderr);
+  assert.equal(gateResult.stdout, "");
+  assert.equal(
+    fs.readFileSync(outputPath, "utf8"),
+    "authorization=scoperange-metadata-proof-non-secret-gate-accepted-v1\n"
+  );
+
+  const canary = "synthetic-cli-secret-canary";
+  const entryResult = spawnSync(process.execPath, [path.resolve("bootstrap/metadata-connection-proof-entry.js")], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { PATH: process.env.PATH, SystemRoot: process.env.SystemRoot, SCOPERANGE_DB_PASSWORD: canary }
+  });
+  assert.equal(entryResult.status, 1);
+  const receipt = JSON.parse(entryResult.stdout);
+  assert.equal(receipt.reasonCode, "connection_proof_not_configured");
+  assert.equal(entryResult.stdout.includes(canary), false);
+  assert.equal(entryResult.stderr, "");
+});

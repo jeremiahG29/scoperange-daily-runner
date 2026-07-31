@@ -1,6 +1,7 @@
 import { METADATA_CONNECTION_PROOF_CONTRACT } from "./metadata-connection-proof-contract.js";
 import { spawn } from "node:child_process";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { fetchLockedPrivateSource } from "./source-lock.js";
 
 const DISABLED_RECEIPT = Object.freeze({
@@ -239,4 +240,10 @@ export async function executeConfiguredMetadataProof({
     if (signal?.aborted) throw new Error("SCOPERANGE_PUBLIC_METADATA_PROOF_BRIDGE_CANCELLED");
     throw new Error("SCOPERANGE_PUBLIC_METADATA_PROOF_BRIDGE_REJECTED");
   }
+}
+
+const directEntry = process.argv[1] ? pathToFileURL(process.argv[1]).href === import.meta.url : false;
+if (directEntry) {
+  await execute({ environment: process.env, log: console.log });
+  process.exitCode = 1;
 }

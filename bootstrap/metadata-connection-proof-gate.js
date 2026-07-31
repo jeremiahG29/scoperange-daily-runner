@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
 const COMMIT = /^[0-9a-f]{40}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
@@ -91,5 +92,40 @@ export function writeAcceptedOutput(outputPath, decision) {
     );
   } catch {
     throw new Error("SCOPERANGE_METADATA_PROOF_OUTPUT_REJECTED");
+  }
+}
+
+function directEnvelope(environment) {
+  return {
+    repository: environment.SCOPERANGE_METADATA_REPOSITORY,
+    repositoryId: environment.SCOPERANGE_METADATA_REPOSITORY_ID,
+    ref: environment.SCOPERANGE_METADATA_REF,
+    refProtected: environment.SCOPERANGE_METADATA_REF_PROTECTED === "true",
+    workflowRef: environment.SCOPERANGE_METADATA_WORKFLOW_REF,
+    workflowSha: environment.SCOPERANGE_METADATA_WORKFLOW_SHA,
+    eventName: environment.SCOPERANGE_METADATA_EVENT_NAME,
+    inputCount: 0,
+    runAttempt: Number(environment.SCOPERANGE_METADATA_RUN_ATTEMPT),
+    observedCommit: environment.SCOPERANGE_METADATA_OBSERVED_COMMIT,
+    approvedCommit: environment.SCOPERANGE_METADATA_APPROVED_COMMIT,
+    sourceLockDigest: environment.SCOPERANGE_METADATA_SOURCE_LOCK_DIGEST,
+    expectedSourceLockDigest: environment.SCOPERANGE_METADATA_EXPECTED_SOURCE_LOCK_DIGEST,
+    lifecycleState: environment.SCOPERANGE_METADATA_LIFECYCLE_STATE,
+    duplicateState: environment.SCOPERANGE_METADATA_DUPLICATE_STATE,
+    recurrenceAuthorized: environment.SCOPERANGE_METADATA_RECURRENCE_AUTHORIZED !== "false",
+    acquisitionAuthorized: environment.SCOPERANGE_METADATA_ACQUISITION_AUTHORIZED !== "false",
+    ingestionAuthorized: environment.SCOPERANGE_METADATA_INGESTION_AUTHORIZED !== "false",
+    promotionAuthorized: environment.SCOPERANGE_METADATA_PROMOTION_AUTHORIZED !== "false",
+    pricingAuthorized: environment.SCOPERANGE_METADATA_PRICING_AUTHORIZED !== "false"
+  };
+}
+
+const directEntry = process.argv[1] ? pathToFileURL(process.argv[1]).href === import.meta.url : false;
+if (directEntry) {
+  const decision = evaluateMetadataProofGate(directEnvelope(process.env));
+  if (decision.disposition === "accepted") {
+    writeAcceptedOutput(process.env.GITHUB_OUTPUT, decision);
+  } else {
+    process.exitCode = 1;
   }
 }
