@@ -35,3 +35,11 @@ The target verifier accepts only an Ed25519-signed synthetic capability bound to
 Caller-supplied identity and target state strings are excluded from the bootstrap environment contract. The identity and target verifiers are not imported by the entry point or either workflow description. The production-connection interface is structurally disabled and returns a fixed zero-effect rejection for every connection-shaped input. No public key, private key, audience, environment, provider mapping, target, broker, endpoint, writer, or connection is configured.
 
 A future production design would require a separately reviewed trust boundary to validate real workload identity, map it privately to exactly one evidence-only writer, and issue a one-use capability. This package does not implement or authorize that boundary.
+
+## Metadata-only connection proof candidate
+
+The package now includes a locally testable exact-commit fetch boundary, a closed non-secret authorization gate, a disabled child-process bridge, and `inactive-metadata-connection-proof-workflow.yml`. That candidate remains outside `.github/workflows/**`; it is not registered and has never been run. The already registered inert shell remains unchanged, provider-disabled, and has zero runs.
+
+The candidate has no configured approved-commit binding, deploy key, TLS CA, database target, environment secret, provider identity, or production connection. Its checked-in entry exits before reading configuration, constructing a client, fetching private source, or attempting a network connection. The candidate explicitly disables package-manager caching, uses pinned action commits, permits only a manual trigger, and keeps acquisition, ingestion, promotion, recurrence, and pricing authority false.
+
+Any future governance binding, private-source credential, host-key or CA configuration, provider-level egress restriction, workflow registration, temporary database login window, proof run, cleanup, recurrence, or acquisition step requires its own review and explicit authorization. None is authorized by this source package.
