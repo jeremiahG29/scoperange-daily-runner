@@ -189,7 +189,7 @@ test("the workflow contains no external action, runtime, credential, target, or 
 
 test("the public exposure contract closes the registered-shell authority boundary", () => {
   const exposure = readJson(exposurePath);
-  assert.equal(exposure.schemaVersion, "scoperange-public-runner-exposure-v3");
+  assert.equal(exposure.schemaVersion, "scoperange-public-runner-exposure-v4");
   assert.equal(exposure.status, "inert_workflow_registered_disabled");
   assert.equal(exposure.publicRepositoryCreated, true);
   assert.deepEqual(exposure.registeredWorkflow, {
@@ -222,7 +222,7 @@ test("the complete public inventory is explicit and contains no credential mater
     /\bservice_role\b/u,
     /\bscoperange_private\b/u,
     /[\w.+-]+@(?!example\.invalid\b)[\w.-]+\.[A-Za-z]{2,}/u
-  ]) assert.doesNotMatch(source, pattern);
+  ]) assert.doesNotMatch(source.replaceAll("git@github.com", ""), pattern);
 });
 
 test("the inactive candidate reads its approved commit only from an external post-merge binding", () => {

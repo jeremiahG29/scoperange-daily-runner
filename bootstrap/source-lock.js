@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const COMMIT = /^[0-9a-f]{40}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
@@ -231,10 +232,14 @@ async function terminateManagedChild(child) {
   return waitForChildExit(child, 1000);
 }
 
-export async function withEphemeralWorkspace({ fakeKeyMaterial, operation, signal, timeoutMs = 1000 } = {}) {
-  if (typeof fakeKeyMaterial !== "string" || !fakeKeyMaterial
-    || /PRIVATE KEY|ssh-(?:rsa|ed25519)/iu.test(fakeKeyMaterial)
-    || typeof operation !== "function" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 10_000) {
+export async function withEphemeralWorkspace({ fakeKeyMaterial, keyMaterial, operation, signal, timeoutMs = 1000 } = {}) {
+  const usingFakeKey = fakeKeyMaterial !== undefined && keyMaterial === undefined;
+  const selectedKeyMaterial = usingFakeKey ? fakeKeyMaterial : keyMaterial;
+  if (typeof selectedKeyMaterial !== "string" || !selectedKeyMaterial
+    || selectedKeyMaterial.length > 16_384 || selectedKeyMaterial.includes("\0")
+    || (usingFakeKey && /PRIVATE KEY|ssh-(?:rsa|ed25519)/iu.test(selectedKeyMaterial))
+    || (!usingFakeKey && fakeKeyMaterial !== undefined)
+    || typeof operation !== "function" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 90_000) {
     fail("ephemeral_input_rejected");
   }
   const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-public-runner-"));
@@ -242,7 +247,8 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, operation, signa
   const checkoutPath = path.join(workspacePath, "checkout");
   fs.mkdirSync(sshDirectory, { mode: 0o700 });
   fs.mkdirSync(checkoutPath, { mode: 0o700 });
-  fs.writeFileSync(path.join(sshDirectory, "identity"), fakeKeyMaterial, { encoding: "utf8", mode: 0o600 });
+  const identityPath = path.join(sshDirectory, "identity");
+  fs.writeFileSync(identityPath, selectedKeyMaterial, { encoding: "utf8", mode: 0o600 });
 
   let timeout;
   let abortListener;
@@ -251,7 +257,17 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, operation, signa
   let cleanupFailed = false;
   const cleanupCallbacks = [];
   const managedChildren = new Set();
+  const managedTerminations = new Map();
   const operationController = new AbortController();
+  const terminateTrackedChild = (child) => {
+    if (!managedTerminations.has(child)) {
+      managedTerminations.set(
+        child,
+        Promise.resolve().then(() => terminateManagedChild(child)).catch(() => false)
+      );
+    }
+    return managedTerminations.get(child);
+  };
   const registerCleanup = (callback) => {
     if (typeof callback !== "function") fail("ephemeral_cleanup_rejected");
     cleanupCallbacks.push(callback);
@@ -276,14 +292,88 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, operation, signa
     child.once("close", () => managedChildren.delete(child));
     return Object.freeze({ pid: child.pid });
   };
+  const runManagedProcess = ({ program, args, cwd, env, stdin = "", maxOutputBytes } = {}) => {
+    const relativeCwd = typeof cwd === "string" ? path.relative(workspacePath, cwd) : "..";
+    if (typeof program !== "string" || !program || !Array.isArray(args)
+      || args.some((arg) => typeof arg !== "string")
+      || typeof cwd !== "string" || !path.isAbsolute(cwd)
+      || relativeCwd.startsWith("..") || path.isAbsolute(relativeCwd)
+      || !env || typeof env !== "object" || Array.isArray(env)
+      || Object.entries(env).some(([key, value]) => !key || typeof value !== "string")
+      || typeof stdin !== "string" || Buffer.byteLength(stdin, "utf8") > 64 * 1024
+      || !Number.isInteger(maxOutputBytes) || maxOutputBytes < 1 || maxOutputBytes > 64 * 1024) {
+      return Promise.reject(new Error("managed process rejected"));
+    }
+    return new Promise((resolve, reject) => {
+      const child = spawn(program, args, {
+        cwd,
+        env: {
+          PATH: process.env.PATH ?? "",
+          SystemRoot: process.env.SystemRoot ?? "",
+          ...env
+        },
+        windowsHide: true,
+        shell: false,
+        stdio: ["pipe", "pipe", "pipe"],
+        detached: process.platform !== "win32"
+      });
+      let stdout = "";
+      let stderr = "";
+      let outputBytes = 0;
+      let rejectionReason = null;
+      let settled = false;
+      const finish = (error, value) => {
+        if (settled) return;
+        settled = true;
+        operationController.signal.removeEventListener("abort", onAbort);
+        managedChildren.delete(child);
+        if (error) reject(error);
+        else resolve(value);
+      };
+      const requestTermination = (reason) => {
+        rejectionReason ??= reason;
+        void terminateTrackedChild(child);
+      };
+      const onAbort = () => requestTermination("managed process cancelled");
+      const onData = (target) => (chunk) => {
+        outputBytes += chunk.length;
+        if (outputBytes > maxOutputBytes) {
+          requestTermination("managed process output rejected");
+        } else if (target === "stdout") {
+          stdout += chunk.toString("utf8");
+        } else {
+          stderr += chunk.toString("utf8");
+        }
+      };
+      child.stdout.on("data", onData("stdout"));
+      child.stderr.on("data", onData("stderr"));
+      child.once("error", (error) => finish(error));
+      child.once("close", (exitCode) => {
+        if (rejectionReason || operationController.signal.aborted) {
+          finish(new Error(rejectionReason ?? "managed process cancelled"));
+        } else {
+          finish(null, { exitCode, stdout, stderr });
+        }
+      });
+      if (!Number.isInteger(child.pid) || child.pid < 1) {
+        finish(new Error("managed process start failed"));
+        return;
+      }
+      managedChildren.add(child);
+      operationController.signal.addEventListener("abort", onAbort, { once: true });
+      child.stdin.end(stdin);
+    });
+  };
   try {
     if (signal?.aborted) throw new Error("ephemeral_operation_cancelled");
     const operationPromise = Promise.resolve().then(() => operation({
       workspacePath,
       checkoutPath,
+      identityPath,
       signal: operationController.signal,
       registerCleanup,
-      spawnManaged
+      spawnManaged,
+      runManagedProcess
     }));
     const timeoutPromise = new Promise((_, reject) => {
       timeout = setTimeout(() => {
@@ -311,7 +401,7 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, operation, signa
     if (signal && abortListener) signal.removeEventListener("abort", abortListener);
     operationController.abort();
     for (const child of [...managedChildren]) {
-      if (!(await terminateManagedChild(child))) cleanupFailed = true;
+      if (!(await terminateTrackedChild(child))) cleanupFailed = true;
       managedChildren.delete(child);
     }
     for (const callback of cleanupCallbacks.reverse()) {
@@ -338,4 +428,122 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, operation, signa
   if (cleanupFailed) throw new Error("ephemeral_cleanup_failed");
   if (operationError) throw operationError;
   return result;
+}
+
+const GITHUB_REMOTE = "git@github.com:jeremiahG29/scopematch.git";
+const KNOWN_HOSTS_PATH = fileURLToPath(new URL("./github-known-hosts", import.meta.url));
+
+function portableQuotedPath(value) {
+  if (typeof value !== "string" || !path.isAbsolute(value) || /[\r\n"\0]/u.test(value)) {
+    fail("source_process_path_rejected");
+  }
+  return `"${value.replace(/\\/gu, "/")}"`;
+}
+
+async function runFetchCommand({ spawnImpl, args, cwd, env, signal }) {
+  const result = await spawnImpl({
+    program: "git",
+    args,
+    cwd,
+    env,
+    signal,
+    maxOutputBytes: 64 * 1024
+  });
+  if (!result || result.exitCode !== 0
+    || typeof result.stdout !== "string" || typeof result.stderr !== "string"
+    || Buffer.byteLength(result.stdout, "utf8") + Buffer.byteLength(result.stderr, "utf8") > 64 * 1024) {
+    throw new Error("source command rejected");
+  }
+}
+
+export async function fetchLockedPrivateSource({
+  lock,
+  keyMaterial,
+  spawnImpl,
+  signal,
+  consumeVerifiedCheckout
+} = {}) {
+  try {
+    validateSourceLock(lock);
+    if (lock.requiredAncestor !== lock.approvedParent
+      || (spawnImpl !== undefined && typeof spawnImpl !== "function")
+      || (consumeVerifiedCheckout !== undefined && typeof consumeVerifiedCheckout !== "function")
+      || !signal || typeof signal.aborted !== "boolean"
+      || typeof signal.addEventListener !== "function") {
+      throw new Error("source fetch input rejected");
+    }
+    return await withEphemeralWorkspace({
+      keyMaterial,
+      signal,
+      timeoutMs: 90_000,
+      operation: async ({
+        workspacePath,
+        checkoutPath,
+        identityPath,
+        signal: operationSignal,
+        runManagedProcess
+      }) => {
+        const selectedSpawnImpl = spawnImpl ?? runManagedProcess;
+        const sshCommand = [
+          "ssh",
+          "-F", "/dev/null",
+          "-i", portableQuotedPath(identityPath),
+          "-o", "IdentitiesOnly=yes",
+          "-o", "StrictHostKeyChecking=yes",
+          "-o", `UserKnownHostsFile=${portableQuotedPath(KNOWN_HOSTS_PATH)}`,
+          "-o", "GlobalKnownHostsFile=/dev/null",
+          "-o", "BatchMode=yes"
+        ].join(" ");
+        const env = {
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_TERMINAL_PROMPT: "0",
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "credential.helper",
+          GIT_CONFIG_VALUE_0: "",
+          GIT_SSH_COMMAND: sshCommand
+        };
+        await runFetchCommand({
+          spawnImpl: selectedSpawnImpl,
+          args: ["init", "--quiet", checkoutPath],
+          cwd: workspacePath,
+          env,
+          signal: operationSignal
+        });
+        await runFetchCommand({
+          spawnImpl: selectedSpawnImpl,
+          args: [
+            "-C", checkoutPath,
+            "-c", "protocol.version=2",
+            "fetch",
+            "--no-tags",
+            "--no-recurse-submodules",
+            "--depth=2",
+            GITHUB_REMOTE,
+            lock.approvedCommit
+          ],
+          cwd: workspacePath,
+          env,
+          signal: operationSignal
+        });
+        await runFetchCommand({
+          spawnImpl: selectedSpawnImpl,
+          args: ["-C", checkoutPath, "checkout", "--quiet", "--detach", lock.approvedCommit],
+          cwd: workspacePath,
+          env,
+          signal: operationSignal
+        });
+        const verification = verifyLocalCheckout({ checkoutPath, lock });
+        if (consumeVerifiedCheckout === undefined) return verification;
+        return consumeVerifiedCheckout({
+          workspacePath,
+          checkoutPath,
+          bundleRoot: lock.bundleRoot,
+          runManagedProcess
+        });
+      }
+    });
+  } catch {
+    if (signal?.aborted) throw new Error("SCOPERANGE_PUBLIC_SOURCE_FETCH_CANCELLED");
+    throw new Error("SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED");
+  }
 }

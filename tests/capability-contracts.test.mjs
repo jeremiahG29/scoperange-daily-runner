@@ -634,3 +634,23 @@ test("the disabled production connection rejects all connection-shaped input wit
   assert.deepEqual(empty, { ...attempted, reasonCode: "connection_not_configured" });
   assert.equal(JSON.stringify(attempted).includes(canary), false);
 });
+
+test("the metadata connection proof contract is public-safe, unconfigured, and authority-free", async () => {
+  const metadata = await import("../bootstrap/metadata-connection-proof-contract.js");
+  assert.deepEqual(metadata.METADATA_CONNECTION_PROOF_CONTRACT, {
+    schemaVersion: "scoperange-public-metadata-connection-proof-v1",
+    configured: false,
+    externalPostMergeBindingRequired: true,
+    exactCommitRequired: true,
+    dependencyCacheAllowed: false,
+    recognizedWorkflowPlacement: false,
+    authority: {
+      connectionProof: false,
+      recurrence: false,
+      acquisition: false,
+      ingestion: false,
+      promotion: false,
+      pricing: false
+    }
+  });
+});
