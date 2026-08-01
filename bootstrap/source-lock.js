@@ -257,7 +257,17 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, keyMaterial, ope
   let cleanupFailed = false;
   const cleanupCallbacks = [];
   const managedChildren = new Set();
+  const managedTerminations = new Map();
   const operationController = new AbortController();
+  const terminateTrackedChild = (child) => {
+    if (!managedTerminations.has(child)) {
+      managedTerminations.set(
+        child,
+        Promise.resolve().then(() => terminateManagedChild(child)).catch(() => false)
+      );
+    }
+    return managedTerminations.get(child);
+  };
   const registerCleanup = (callback) => {
     if (typeof callback !== "function") fail("ephemeral_cleanup_rejected");
     cleanupCallbacks.push(callback);
@@ -322,7 +332,7 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, keyMaterial, ope
       };
       const requestTermination = (reason) => {
         rejectionReason ??= reason;
-        void terminateManagedChild(child);
+        void terminateTrackedChild(child);
       };
       const onAbort = () => requestTermination("managed process cancelled");
       const onData = (target) => (chunk) => {
@@ -391,7 +401,7 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, keyMaterial, ope
     if (signal && abortListener) signal.removeEventListener("abort", abortListener);
     operationController.abort();
     for (const child of [...managedChildren]) {
-      if (!(await terminateManagedChild(child))) cleanupFailed = true;
+      if (!(await terminateTrackedChild(child))) cleanupFailed = true;
       managedChildren.delete(child);
     }
     for (const callback of cleanupCallbacks.reverse()) {
