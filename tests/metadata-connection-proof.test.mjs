@@ -7,6 +7,8 @@ import { spawn, spawnSync } from "node:child_process";
 import test from "node:test";
 
 const approvedCommit = "a".repeat(40);
+const expectedTlsCaSha256 = "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7";
+const expectedTlsCaFingerprint = "80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA";
 
 function validSyntheticGitHubEnvelope() {
   return {
@@ -361,6 +363,45 @@ test("the checked-in public entry is disabled before environment access", async 
   assert.equal(lines[0].includes("synthetic-environment-canary"), false);
 });
 
+test("the public bridge loads only the reviewed Supabase root CA artifact", async () => {
+  const entry = await import("../bootstrap/metadata-connection-proof-entry.js");
+  const { METADATA_CONNECTION_PROOF_CONTRACT: contract } = await import("../bootstrap/metadata-connection-proof-contract.js");
+  const caPath = path.resolve("bootstrap/supabase-root-2021-ca.crt");
+  assert.equal(
+    fs.readFileSync(path.resolve(".gitattributes"), "utf8"),
+    ".gitattributes text eol=lf\nbootstrap/supabase-root-2021-ca.crt text eol=lf\n"
+  );
+  assert.deepEqual(contract.tlsCa, {
+    source: "checked_in_public_artifact",
+    path: "bootstrap/supabase-root-2021-ca.crt",
+    sha256: expectedTlsCaSha256,
+    runtimeDownloadAllowed: false,
+    environmentSecretRequired: false,
+    callerOverrideAllowed: false,
+    verifyFullRequired: true
+  });
+  assert.equal(fs.existsSync(caPath), true);
+  const pem = fs.readFileSync(caPath, "utf8");
+  assert.equal(crypto.createHash("sha256").update(pem, "utf8").digest("hex"), expectedTlsCaSha256);
+
+  const value = entry.loadPinnedTlsCa();
+  assert.deepEqual(value, {
+    tlsCaPem: pem,
+    tlsCaDigest: `sha256:${expectedTlsCaSha256}`
+  });
+  const certificate = new crypto.X509Certificate(value.tlsCaPem);
+  assert.equal(certificate.ca, true);
+  assert.equal(certificate.subject, certificate.issuer);
+  assert.equal(certificate.fingerprint256, expectedTlsCaFingerprint);
+  assert.ok(Date.parse(certificate.validFrom) <= Date.now());
+  assert.ok(Date.parse(certificate.validTo) > Date.now());
+
+  assert.throws(
+    () => entry.loadPinnedTlsCa({ readFileImpl: () => pem.replace("MIIDxD", "NIIDxD") }),
+    { message: "SCOPERANGE_PUBLIC_TLS_CA_REJECTED" }
+  );
+});
+
 test("the future bridge keeps secrets out of argv, environment, cache, and output", async (context) => {
   const entry = await import("../bootstrap/metadata-connection-proof-entry.js");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-bridge-"));
@@ -383,8 +424,6 @@ test("the future bridge keeps secrets out of argv, environment, cache, and outpu
     databasePassword: canary,
     tlsServerName: "synthetic.pooler.example.test",
     expectedProjectRefDigest: `sha256:${"1".repeat(64)}`,
-    tlsCaPem: "synthetic-ca-canary",
-    tlsCaDigest: `sha256:${"2".repeat(64)}`,
     observedAt: "2026-07-30T12:00:00.000Z"
   };
   const privateReceipt = {
@@ -440,10 +479,31 @@ test("the future bridge keeps secrets out of argv, environment, cache, and outpu
   assert.ok(processCalls[0].args.includes("--cache"));
   assert.ok(processCalls[0].args.includes(path.join(workspacePath, "npm-cache")));
   assert.deepEqual(processCalls[1].args, ["entry.js"]);
-  assert.equal(processCalls[1].stdin, `${JSON.stringify(privateInput)}\n`);
+  assert.deepEqual(JSON.parse(processCalls[1].stdin), {
+    ...privateInput,
+    ...entry.loadPinnedTlsCa()
+  });
   const publicProcessShape = processCalls.map(({ stdin, ...value }) => value);
   assert.equal(JSON.stringify(publicProcessShape).includes(canary), false);
   assert.equal(JSON.stringify(result).includes(canary), false);
+
+  let rejectedFetches = 0;
+  await assert.rejects(
+    entry.executeConfiguredMetadataProof({
+      authorization: acceptedDecision.authorization,
+      lock: { bundleRoot },
+      keyMaterial: canary,
+      privateInput: {
+        ...privateInput,
+        tlsCaPem: "synthetic-caller-ca-canary",
+        tlsCaDigest: `sha256:${"2".repeat(64)}`
+      },
+      signal: new AbortController().signal,
+      fetchImpl: async () => { rejectedFetches += 1; }
+    }),
+    { message: "SCOPERANGE_PUBLIC_METADATA_PROOF_BRIDGE_REJECTED" }
+  );
+  assert.equal(rejectedFetches, 0);
 });
 
 test("the metadata proof workflow candidate is manual, closed, and unregistered", () => {

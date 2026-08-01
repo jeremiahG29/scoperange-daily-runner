@@ -1,7 +1,13 @@
 import { METADATA_CONNECTION_PROOF_CONTRACT } from "./metadata-connection-proof-contract.js";
+import crypto from "node:crypto";
+import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { fetchLockedPrivateSource } from "./source-lock.js";
+
+const TLS_CA_PATH = fileURLToPath(new URL("./supabase-root-2021-ca.crt", import.meta.url));
+const TLS_CA_SHA256 = "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7";
+const TLS_CA_FINGERPRINT = "80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA";
 
 const DISABLED_RECEIPT = Object.freeze({
   schemaVersion: "scoperange-public-metadata-proof-receipt-v1",
@@ -37,8 +43,6 @@ const PRIVATE_INPUT_KEYS = Object.freeze([
   "databasePassword",
   "tlsServerName",
   "expectedProjectRefDigest",
-  "tlsCaPem",
-  "tlsCaDigest",
   "observedAt"
 ]);
 const PRIVATE_RECEIPT_KEYS = Object.freeze([
@@ -64,6 +68,36 @@ const PRIVATE_RECEIPT_KEYS = Object.freeze([
 ]);
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const TIMESTAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+
+export function loadPinnedTlsCa({ readFileImpl = fs.readFileSync } = {}) {
+  try {
+    if (typeof readFileImpl !== "function") throw new Error("invalid reader");
+    const tlsCaPem = readFileImpl(TLS_CA_PATH, "utf8");
+    if (typeof tlsCaPem !== "string" || Buffer.byteLength(tlsCaPem, "utf8") > 16_384
+      || !tlsCaPem.startsWith("-----BEGIN CERTIFICATE-----\n")
+      || !tlsCaPem.endsWith("-----END CERTIFICATE-----\n")) {
+      throw new Error("invalid certificate envelope");
+    }
+    const digest = crypto.createHash("sha256").update(tlsCaPem, "utf8").digest("hex");
+    if (digest !== TLS_CA_SHA256) throw new Error("certificate digest mismatch");
+    const certificate = new crypto.X509Certificate(tlsCaPem);
+    const now = Date.now();
+    if (certificate.ca !== true || certificate.subject !== certificate.issuer
+      || certificate.fingerprint256 !== TLS_CA_FINGERPRINT
+      || !Number.isFinite(Date.parse(certificate.validFrom))
+      || !Number.isFinite(Date.parse(certificate.validTo))
+      || Date.parse(certificate.validFrom) > now
+      || Date.parse(certificate.validTo) <= now) {
+      throw new Error("certificate identity rejected");
+    }
+    return Object.freeze({
+      tlsCaPem,
+      tlsCaDigest: `sha256:${digest}`
+    });
+  } catch {
+    throw new Error("SCOPERANGE_PUBLIC_TLS_CA_REJECTED");
+  }
+}
 
 function exactKeys(value, keys) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -146,6 +180,7 @@ export async function executeConfiguredMetadataProof({
       || (processImpl !== undefined && typeof processImpl !== "function")) {
       throw new Error("bridge input rejected");
     }
+    const deliveredPrivateInput = Object.freeze({ ...privateInput, ...loadPinnedTlsCa() });
     let consumed = false;
     let consumedResult;
     const result = await fetchImpl({
@@ -182,7 +217,7 @@ export async function executeConfiguredMetadataProof({
           args: ["entry.js"],
           cwd: bundlePath,
           env: { NODE_ENV: "production" },
-          stdin: `${JSON.stringify(privateInput)}\n`,
+          stdin: `${JSON.stringify(deliveredPrivateInput)}\n`,
           signal
         });
         if (child.stderr !== "" || !child.stdout.endsWith("\n")
