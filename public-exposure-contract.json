@@ -1,6 +1,6 @@
 {
-  "schemaVersion": "scoperange-public-runner-exposure-v4",
-  "status": "inert_workflow_registered_disabled",
+  "schemaVersion": "scoperange-public-runner-exposure-v5",
+  "status": "production_candidate_implemented_unregistered_disabled",
   "proposedRepository": "jeremiahG29/scoperange-daily-runner",
   "publicRepositoryCreated": true,
   "privateSourceCopied": false,
@@ -18,6 +18,8 @@
     "bootstrap/metadata-connection-proof-gate.js",
     "bootstrap/operational-receipt.js",
     "bootstrap/package.json",
+    "bootstrap/production-runner-contract.js",
+    "bootstrap/production-runner-entry.js",
     "bootstrap/runtime-gate.js",
     "bootstrap/source-lock.js",
     "bootstrap/supabase-root-2021-ca.crt",
@@ -26,13 +28,27 @@
     "bootstrap/synthetic-source-fetch.js",
     "bootstrap/synthetic-target-capability.js",
     "inactive-metadata-connection-proof-workflow.yml",
+    "inactive-production-daily-workflow.yml",
     "inactive-public-daily-workflow.yml",
+    "production-source-lock.example.json",
     "public-exposure-contract.json",
     "source-lock.example.json",
     "tests/capability-contracts.test.mjs",
     "tests/inert-workflow-registration.test.mjs",
-    "tests/metadata-connection-proof.test.mjs"
+    "tests/metadata-connection-proof.test.mjs",
+    "tests/production-runner-candidate.test.mjs"
   ],
+  "productionRunner": {
+    "implementationPresent": true,
+    "recognizedWorkflowPlacement": false,
+    "configured": false,
+    "activationAuthorized": false,
+    "workflowRuns": 0,
+    "providerWrites": 0,
+    "productionConnections": 0,
+    "evidenceWrites": 0,
+    "pricingAuthority": false
+  },
   "registeredWorkflow": {
     "path": ".github/workflows/scoperange-inert-shell.yml",
     "providerStateRequired": "disabled",

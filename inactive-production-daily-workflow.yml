@@ -1,0 +1,52 @@
+{
+  "name": "ScopeRange production evidence runner (inactive candidate)",
+  "on": { "schedule": [{ "cron": "17 09 * * *" }] },
+  "permissions": { "contents": "read" },
+  "concurrency": { "group": "scoperange-production-evidence-daily-v1", "cancel-in-progress": false },
+  "jobs": {
+    "gate": {
+      "if": "github.repository == 'jeremiahG29/scoperange-daily-runner' && github.event_name == 'schedule' && github.event.schedule == '17 09 * * *' && github.ref == 'refs/heads/main' && github.run_attempt == 1",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 1,
+      "outputs": { "authorization": "${{ steps.gate.outputs.authorization }}" },
+      "steps": [
+        { "name": "Checkout pinned public control plane", "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "with": { "persist-credentials": false, "fetch-depth": 1 } },
+        { "name": "Select pinned Node.js", "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020", "with": { "node-version": "24.18.0", "package-manager-cache": false } },
+        {
+          "id": "gate", "name": "Evaluate disabled non-secret production gate", "run": "node bootstrap/production-runner-entry.js",
+          "env": {
+            "SCOPERANGE_OBSERVED_PUBLIC_COMMIT": "${{ github.sha }}",
+            "SCOPERANGE_APPROVED_PUBLIC_COMMIT": "${{ vars.SCOPERANGE_APPROVED_PUBLIC_COMMIT }}",
+            "SCOPERANGE_APPROVED_PRIVATE_COMMIT": "${{ vars.SCOPERANGE_APPROVED_PRIVATE_COMMIT }}",
+            "SCOPERANGE_SOURCE_LOCK_DIGEST": "${{ vars.SCOPERANGE_SOURCE_LOCK_DIGEST }}",
+            "SCOPERANGE_RELEASE_STATE": "disabled"
+          }
+        }
+      ]
+    },
+    "runner": {
+      "needs": ["gate"],
+      "if": "needs.gate.outputs.authorization == 'scoperange-production-runner-non-secret-gate-accepted-v1'",
+      "environment": "scoperange-production-disabled-v1",
+      "runs-on": "ubuntu-24.04",
+      "timeout-minutes": 10,
+      "permissions": { "contents": "read" },
+      "steps": [
+        { "name": "Checkout pinned public control plane", "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "with": { "persist-credentials": false, "fetch-depth": 1 } },
+        { "name": "Select pinned Node.js", "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020", "with": { "node-version": "24.18.0", "package-manager-cache": false } },
+        {
+          "name": "Run disabled production bridge", "run": "node bootstrap/production-runner-entry.js",
+          "env": {
+            "SCOPERANGE_PRIVATE_SOURCE_DEPLOY_KEY": "${{ secrets.SCOPERANGE_PRIVATE_SOURCE_DEPLOY_KEY }}",
+            "SCOPERANGE_DB_HOST": "${{ secrets.SCOPERANGE_DB_HOST }}",
+            "SCOPERANGE_DB_PORT": "${{ secrets.SCOPERANGE_DB_PORT }}",
+            "SCOPERANGE_DB_NAME": "${{ secrets.SCOPERANGE_DB_NAME }}",
+            "SCOPERANGE_DB_USER": "${{ secrets.SCOPERANGE_DB_USER }}",
+            "SCOPERANGE_DB_PASSWORD": "${{ secrets.SCOPERANGE_DB_PASSWORD }}",
+            "SCOPERANGE_DB_TLS_SERVER_NAME": "${{ secrets.SCOPERANGE_DB_TLS_SERVER_NAME }}"
+          }
+        }
+      ]
+    }
+  }
+}

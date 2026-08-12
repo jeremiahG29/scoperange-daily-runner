@@ -189,8 +189,8 @@ test("the workflow contains no external action, runtime, credential, target, or 
 
 test("the public exposure contract closes the registered-shell authority boundary", () => {
   const exposure = readJson(exposurePath);
-  assert.equal(exposure.schemaVersion, "scoperange-public-runner-exposure-v4");
-  assert.equal(exposure.status, "inert_workflow_registered_disabled");
+  assert.equal(exposure.schemaVersion, "scoperange-public-runner-exposure-v5");
+  assert.equal(exposure.status, "production_candidate_implemented_unregistered_disabled");
   assert.equal(exposure.publicRepositoryCreated, true);
   assert.deepEqual(exposure.registeredWorkflow, {
     path: workflowRelativePath,
