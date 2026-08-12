@@ -37,13 +37,18 @@
         {
           "name": "Run disabled production bridge", "run": "node bootstrap/production-runner-entry.js",
           "env": {
+            "SCOPERANGE_CONFIG_VERSION": "${{ secrets.SCOPERANGE_CONFIG_VERSION }}",
+            "SCOPERANGE_CREDENTIAL_EXPIRES_AT": "${{ secrets.SCOPERANGE_CREDENTIAL_EXPIRES_AT }}",
+            "SCOPERANGE_CREDENTIAL_NOT_BEFORE": "${{ secrets.SCOPERANGE_CREDENTIAL_NOT_BEFORE }}",
+            "SCOPERANGE_CREDENTIAL_VERSION": "${{ secrets.SCOPERANGE_CREDENTIAL_VERSION }}",
             "SCOPERANGE_PRIVATE_SOURCE_DEPLOY_KEY": "${{ secrets.SCOPERANGE_PRIVATE_SOURCE_DEPLOY_KEY }}",
             "SCOPERANGE_DB_HOST": "${{ secrets.SCOPERANGE_DB_HOST }}",
             "SCOPERANGE_DB_PORT": "${{ secrets.SCOPERANGE_DB_PORT }}",
             "SCOPERANGE_DB_NAME": "${{ secrets.SCOPERANGE_DB_NAME }}",
             "SCOPERANGE_DB_USER": "${{ secrets.SCOPERANGE_DB_USER }}",
             "SCOPERANGE_DB_PASSWORD": "${{ secrets.SCOPERANGE_DB_PASSWORD }}",
-            "SCOPERANGE_DB_TLS_SERVER_NAME": "${{ secrets.SCOPERANGE_DB_TLS_SERVER_NAME }}"
+            "SCOPERANGE_DB_TLS_SERVER_NAME": "${{ secrets.SCOPERANGE_DB_TLS_SERVER_NAME }}",
+            "SCOPERANGE_EXPECTED_PROJECT_DIGEST": "${{ secrets.SCOPERANGE_EXPECTED_PROJECT_DIGEST }}"
           }
         }
       ]

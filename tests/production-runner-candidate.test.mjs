@@ -22,12 +22,12 @@ test("production runner contract is implemented but activation remains false", a
 test("production source lock binds the exact reviewed private bundle without activation", () => {
   const lock = JSON.parse(fs.readFileSync("production-source-lock.example.json", "utf8"));
   assert.equal(lock.repository, "jeremiahG29/scopematch");
-  assert.equal(lock.approvedCommit, "126a37862b0afb43d25a90f8bc9f4d2625b1f1c6");
-  assert.equal(lock.approvedParent, "2e6fbe1decfd90cae522384c7638ed08a759d30b");
+  assert.equal(lock.approvedCommit, "9a37ec0b96171423bc1ed605ffaa22debe88fa4f");
+  assert.equal(lock.approvedParent, "126a37862b0afb43d25a90f8bc9f4d2625b1f1c6");
   assert.equal(lock.requiredAncestor, lock.approvedParent);
-  assert.equal(lock.approvedTree, "84e587c209cfda0e5173efbf54f1daff33218c63");
+  assert.equal(lock.approvedTree, "802aae2732408c9948c57ff4310e8dfdade9f9dd");
   assert.equal(lock.bundleRoot, "scoperange/pricing-intelligence/production-runner");
-  assert.equal(lock.allowedBundleDigest, "sha256:bf1af80cbaad1d613c305d3564ed569c0d8ba70be4104204ac4a691fd26a657d");
+  assert.equal(lock.allowedBundleDigest, "sha256:9d0b50a1f5fa1e8568eff3f68ebbbf84cab50b2613fa20eb7c2c253bdde82b87");
   assert.equal(lock.credential.created, false);
   assert.equal(lock.activationAuthorized, false);
 });
@@ -77,8 +77,10 @@ test("configured bridge keeps secrets in stdin and accepts only a fixed private 
     keyMaterial: "synthetic-private-source-key",
     privateInput: {
       schemaVersion: "scoperange-production-runner-input-v1",
-      databasePassword: canary,
-      databaseHost: "synthetic.pooler.supabase.com"
+      database: {
+        password: canary,
+        host: "synthetic.pooler.supabase.com"
+      }
     },
     signal: new AbortController().signal,
     fetchImpl: async (value) => value.consumeVerifiedCheckout({
@@ -90,13 +92,13 @@ test("configured bridge keeps secrets in stdin and accepts only a fixed private 
     processImpl: async (value) => {
       processCalls.push(structuredClone(value));
       if (value.program === process.execPath) return { exitCode: 0, stdout: `${JSON.stringify(privateReceipt)}\n`, stderr: "" };
-      return { exitCode: 0, stdout: "", stderr: "" };
+      return { exitCode: 0, stdout: "added 14 packages in 845ms\n", stderr: "" };
     }
   });
   assert.deepEqual(result, privateReceipt);
   assert.equal(processCalls.length, 2);
   assert.deepEqual(processCalls[1].args, ["bridge-entry.js"]);
-  assert.equal(JSON.parse(processCalls[1].stdin).databasePassword, canary);
+  assert.equal(JSON.parse(processCalls[1].stdin).database.password, canary);
   const publicShape = processCalls.map(({ stdin, ...value }) => value);
   assert.equal(JSON.stringify(publicShape).includes(canary), false);
   assert.equal(JSON.stringify(result).includes(canary), false);
@@ -123,6 +125,23 @@ test("production candidate is exact-commit-bound, cacheless, disabled, and unreg
   assert.match(raw, /"package-manager-cache": false/u);
   assert.doesNotMatch(raw, /cache\/restore|cache\/save|upload-artifact|download-artifact/iu);
   assert.equal(fs.existsSync(path.resolve(".github/workflows/scoperange-production-daily.yml")), false);
+  assert.deepEqual(
+    Object.keys(candidate.jobs.runner.steps.at(-1).env).sort(),
+    [
+      "SCOPERANGE_CONFIG_VERSION",
+      "SCOPERANGE_CREDENTIAL_EXPIRES_AT",
+      "SCOPERANGE_CREDENTIAL_NOT_BEFORE",
+      "SCOPERANGE_CREDENTIAL_VERSION",
+      "SCOPERANGE_DB_HOST",
+      "SCOPERANGE_DB_NAME",
+      "SCOPERANGE_DB_PASSWORD",
+      "SCOPERANGE_DB_PORT",
+      "SCOPERANGE_DB_TLS_SERVER_NAME",
+      "SCOPERANGE_DB_USER",
+      "SCOPERANGE_EXPECTED_PROJECT_DIGEST",
+      "SCOPERANGE_PRIVATE_SOURCE_DEPLOY_KEY"
+    ]
+  );
 });
 
 test("public exposure inventory identifies production artifacts as unregistered and unconfigured", () => {

@@ -85,14 +85,13 @@ export async function executeConfiguredProductionBridge({ authorization, lock, k
         const selectedProcess = processImpl ?? runManagedProcess;
         if (typeof selectedProcess !== "function") throw new Error("process rejected");
         const cachePath = path.join(workspacePath, "npm-cache");
-        const install = await runProcess(selectedProcess, {
+        await runProcess(selectedProcess, {
           program: process.platform === "win32" ? "npm.cmd" : "npm",
           args: ["ci", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", cachePath, "--prefer-offline=false"],
           cwd: bundlePath,
           env: { npm_config_cache: cachePath, npm_config_ignore_scripts: "true", npm_config_audit: "false", npm_config_fund: "false" },
           stdin: "", signal
         });
-        if (install.stdout !== "" || install.stderr !== "") throw new Error("install output rejected");
         const child = await runProcess(selectedProcess, {
           program: process.execPath, args: ["bridge-entry.js"], cwd: bundlePath,
           env: { NODE_ENV: "production" }, stdin: `${JSON.stringify(deliveredPrivateInput)}\n`, signal
