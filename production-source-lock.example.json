@@ -1,0 +1,38 @@
+{
+  "schemaVersion": "scoperange-public-runner-source-lock-v1",
+  "lockVersion": "minimum-production-runner-9a37ec0-v1",
+  "repository": "jeremiahG29/scopematch",
+  "approvedCommit": "9a37ec0b96171423bc1ed605ffaa22debe88fa4f",
+  "requiredAncestor": "126a37862b0afb43d25a90f8bc9f4d2625b1f1c6",
+  "approvedParent": "126a37862b0afb43d25a90f8bc9f4d2625b1f1c6",
+  "approvedTree": "802aae2732408c9948c57ff4310e8dfdade9f9dd",
+  "bundleRoot": "scoperange/pricing-intelligence/production-runner",
+  "allowedPaths": [
+    "scoperange/pricing-intelligence/production-runner/bridge-entry.js",
+    "scoperange/pricing-intelligence/production-runner/durable-recurrence.js",
+    "scoperange/pricing-intelligence/production-runner/entry.js",
+    "scoperange/pricing-intelligence/production-runner/package-lock.json",
+    "scoperange/pricing-intelligence/production-runner/package.json",
+    "scoperange/pricing-intelligence/production-runner/production-evidence-writer.js",
+    "scoperange/pricing-intelligence/production-runner/public-source-fetch.js"
+  ],
+  "allowedBundleDigest": "sha256:484aae9b7bdb67ebbd2cdd16bbbfb7596ac4eab8efccae4b893569b1c551bea0",
+  "fetch": {
+    "refType": "commit_only",
+    "allowedRefs": [],
+    "fallbackAllowed": false,
+    "tagsAllowed": false,
+    "branchesAllowed": false,
+    "submodulesAllowed": false,
+    "lfsAllowed": false,
+    "credentialHelperAllowed": false,
+    "hostKeyChecking": "strict_github_host_keys_only"
+  },
+  "credential": {
+    "type": "repository_scoped_read_only_deploy_key",
+    "repositoryCount": 1,
+    "write": false,
+    "created": false
+  },
+  "activationAuthorized": false
+}
