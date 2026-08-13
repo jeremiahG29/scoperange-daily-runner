@@ -21,6 +21,7 @@
     "bootstrap/package.json",
     "bootstrap/production-runner-contract.js",
     "bootstrap/production-runner-entry.js",
+    "bootstrap/production-runner-plan.js",
     "bootstrap/runtime-gate.js",
     "bootstrap/source-lock.js",
     "bootstrap/supabase-root-2021-ca.crt",
@@ -42,7 +43,7 @@
   "productionRunner": {
     "implementationPresent": true,
     "recognizedWorkflowPlacement": true,
-    "configured": false,
+    "configured": true,
     "activationAuthorized": false,
     "workflowRuns": 0,
     "providerWrites": 0,
@@ -59,10 +60,20 @@
     "dependencyCacheAllowed": false,
     "exactActionPinsRequired": true,
     "externalCommitBindingConfigured": false,
-    "bridgeConfigured": false,
+    "bridgeConfigured": true,
     "activationAuthorized": false,
     "executionAuthorized": false,
     "productionAuthority": false,
+    "pricingAuthority": false
+  },
+  "approvedInitialRecheck": {
+    "coverageCellId": "coverage:painting:exterior-door:v1",
+    "sourceId": "src-atlanta-door-refinishing-blog",
+    "publicSourceOnly": true,
+    "maximumRequests": 1,
+    "numericEvidenceAllowed": false,
+    "proposalAuthority": false,
+    "promotionAuthority": false,
     "pricingAuthority": false
   },
   "registeredWorkflow": {

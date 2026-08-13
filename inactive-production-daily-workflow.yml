@@ -13,13 +13,13 @@
         { "name": "Checkout pinned public control plane", "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "with": { "persist-credentials": false, "fetch-depth": 1 } },
         { "name": "Select pinned Node.js", "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020", "with": { "node-version": "24.18.0", "package-manager-cache": false } },
         {
-          "id": "gate", "name": "Evaluate disabled non-secret production gate", "run": "node bootstrap/production-runner-entry.js",
+          "id": "gate", "name": "Evaluate disabled non-secret production gate", "run": "node bootstrap/production-runner-entry.js gate",
           "env": {
             "SCOPERANGE_OBSERVED_PUBLIC_COMMIT": "${{ github.sha }}",
             "SCOPERANGE_APPROVED_PUBLIC_COMMIT": "${{ vars.SCOPERANGE_APPROVED_PUBLIC_COMMIT }}",
             "SCOPERANGE_APPROVED_PRIVATE_COMMIT": "${{ vars.SCOPERANGE_APPROVED_PRIVATE_COMMIT }}",
             "SCOPERANGE_SOURCE_LOCK_DIGEST": "${{ vars.SCOPERANGE_SOURCE_LOCK_DIGEST }}",
-            "SCOPERANGE_RELEASE_STATE": "disabled"
+            "SCOPERANGE_RELEASE_STATE": "${{ vars.SCOPERANGE_RELEASE_STATE }}"
           }
         }
       ]
@@ -35,8 +35,13 @@
         { "name": "Checkout pinned public control plane", "uses": "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", "with": { "persist-credentials": false, "fetch-depth": 1 } },
         { "name": "Select pinned Node.js", "uses": "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020", "with": { "node-version": "24.18.0", "package-manager-cache": false } },
         {
-          "name": "Run disabled production bridge", "run": "node bootstrap/production-runner-entry.js",
+          "name": "Run disabled production bridge", "run": "node bootstrap/production-runner-entry.js run",
           "env": {
+            "SCOPERANGE_OBSERVED_PUBLIC_COMMIT": "${{ github.sha }}",
+            "SCOPERANGE_APPROVED_PUBLIC_COMMIT": "${{ vars.SCOPERANGE_APPROVED_PUBLIC_COMMIT }}",
+            "SCOPERANGE_APPROVED_PRIVATE_COMMIT": "${{ vars.SCOPERANGE_APPROVED_PRIVATE_COMMIT }}",
+            "SCOPERANGE_SOURCE_LOCK_DIGEST": "${{ vars.SCOPERANGE_SOURCE_LOCK_DIGEST }}",
+            "SCOPERANGE_RELEASE_STATE": "${{ vars.SCOPERANGE_RELEASE_STATE }}",
             "SCOPERANGE_CONFIG_VERSION": "${{ secrets.SCOPERANGE_CONFIG_VERSION }}",
             "SCOPERANGE_CREDENTIAL_EXPIRES_AT": "${{ secrets.SCOPERANGE_CREDENTIAL_EXPIRES_AT }}",
             "SCOPERANGE_CREDENTIAL_NOT_BEFORE": "${{ secrets.SCOPERANGE_CREDENTIAL_NOT_BEFORE }}",
