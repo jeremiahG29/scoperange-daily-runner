@@ -1,12 +1,13 @@
 {
   "schemaVersion": "scoperange-public-runner-exposure-v5",
-  "status": "production_candidate_implemented_unregistered_disabled",
+  "status": "production_workflow_registered_activation_disabled",
   "proposedRepository": "jeremiahG29/scoperange-daily-runner",
   "publicRepositoryCreated": true,
   "privateSourceCopied": false,
   "publicFiles": [
     ".gitattributes",
     ".github/workflows/scoperange-inert-shell.yml",
+    ".github/workflows/scoperange-daily.yml",
     "README.public.md",
     "SECURITY.public.md",
     "bootstrap/contract.js",
@@ -40,13 +41,28 @@
   ],
   "productionRunner": {
     "implementationPresent": true,
-    "recognizedWorkflowPlacement": false,
+    "recognizedWorkflowPlacement": true,
     "configured": false,
     "activationAuthorized": false,
     "workflowRuns": 0,
     "providerWrites": 0,
     "productionConnections": 0,
     "evidenceWrites": 0,
+    "pricingAuthority": false
+  },
+  "registeredProductionWorkflow": {
+    "path": ".github/workflows/scoperange-daily.yml",
+    "providerStateRequired": "disabled",
+    "onlyTrigger": "schedule",
+    "schedule": "17 09 * * *",
+    "topLevelPermissions": "contents:read",
+    "dependencyCacheAllowed": false,
+    "exactActionPinsRequired": true,
+    "externalCommitBindingConfigured": false,
+    "bridgeConfigured": false,
+    "activationAuthorized": false,
+    "executionAuthorized": false,
+    "productionAuthority": false,
     "pricingAuthority": false
   },
   "registeredWorkflow": {
