@@ -1,12 +1,17 @@
+import fs from "node:fs";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   PRODUCTION_RUNNER_AUTHORIZATION,
   PRODUCTION_RUNNER_BRIDGE_CONFIGURED,
   PRODUCTION_RUNNER_PRIVATE_BUNDLE
 } from "./production-runner-contract.js";
 import { loadPinnedTlsCa } from "./metadata-connection-proof-entry.js";
-import { fetchLockedPrivateSource } from "./source-lock.js";
+import { createApprovedProductionInput } from "./production-runner-plan.js";
+import { fetchLockedPrivateSource, sourceLockDigest } from "./source-lock.js";
+
+const COMMIT = /^[0-9a-f]{40}$/u;
+const SOURCE_LOCK_PATH = fileURLToPath(new URL("../production-source-lock.example.json", import.meta.url));
 
 const DISABLED_RECEIPT = Object.freeze({
   schemaVersion: "scoperange-public-production-runner-receipt-v1",
@@ -27,6 +32,56 @@ const PRIVATE_RECEIPT_KEYS = Object.freeze([
   "evidenceWrites", "numericEvidenceCount", "proposalEffects", "promotionEffects",
   "pricingEffects", "productionAuthority"
 ]);
+
+const ACCEPTED_GATE_RECEIPT = Object.freeze({
+  schemaVersion: "scoperange-public-production-runner-gate-receipt-v1",
+  disposition: "accepted",
+  reasonCode: "accepted",
+  authorization: PRODUCTION_RUNNER_AUTHORIZATION
+});
+
+function rejectedGate(reasonCode) {
+  return Object.freeze({
+    schemaVersion: "scoperange-public-production-runner-gate-receipt-v1",
+    disposition: "rejected",
+    reasonCode,
+    authorization: null
+  });
+}
+
+export function loadProductionSourceLock() {
+  const raw = fs.readFileSync(SOURCE_LOCK_PATH, "utf8");
+  if (Buffer.byteLength(raw, "utf8") > 64 * 1024) throw new Error("SCOPERANGE_PUBLIC_SOURCE_LOCK_REJECTED");
+  return JSON.parse(raw);
+}
+
+export function evaluateProductionRunnerGate({ environment, lock = loadProductionSourceLock() } = {}) {
+  const observedPublicCommit = environment?.SCOPERANGE_OBSERVED_PUBLIC_COMMIT;
+  const approvedPublicCommit = environment?.SCOPERANGE_APPROVED_PUBLIC_COMMIT;
+  const approvedPrivateCommit = environment?.SCOPERANGE_APPROVED_PRIVATE_COMMIT;
+  const expectedSourceLockDigest = environment?.SCOPERANGE_SOURCE_LOCK_DIGEST;
+  const releaseState = environment?.SCOPERANGE_RELEASE_STATE;
+  if (releaseState !== "authorized") return rejectedGate("release_state_rejected");
+  if (!COMMIT.test(observedPublicCommit ?? "") || approvedPublicCommit !== observedPublicCommit) {
+    return rejectedGate("public_commit_rejected");
+  }
+  if (!COMMIT.test(approvedPrivateCommit ?? "") || approvedPrivateCommit !== lock?.approvedCommit) {
+    return rejectedGate("private_commit_rejected");
+  }
+  if (expectedSourceLockDigest !== sourceLockDigest(lock)) return rejectedGate("source_lock_rejected");
+  if (lock?.activationAuthorized !== false || lock?.bundleRoot !== PRODUCTION_RUNNER_PRIVATE_BUNDLE) {
+    return rejectedGate("source_lock_rejected");
+  }
+  return ACCEPTED_GATE_RECEIPT;
+}
+
+export function writeAcceptedProductionRunnerOutput(outputPath, decision) {
+  if (decision !== ACCEPTED_GATE_RECEIPT || typeof outputPath !== "string" || !path.isAbsolute(outputPath)
+    || outputPath.includes("\0") || /[\r\n]/u.test(outputPath)) {
+    throw new Error("SCOPERANGE_PUBLIC_PRODUCTION_OUTPUT_REJECTED");
+  }
+  fs.appendFileSync(outputPath, `authorization=${PRODUCTION_RUNNER_AUTHORIZATION}\n`, { encoding: "utf8" });
+}
 
 function validPrivateReceipt(value) {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -52,12 +107,38 @@ async function runProcess(processImpl, value) {
 }
 
 export async function execute({ environment, log = console.log } = {}) {
-  if (PRODUCTION_RUNNER_BRIDGE_CONFIGURED !== true) {
-    log(JSON.stringify(DISABLED_RECEIPT));
-    return DISABLED_RECEIPT;
-  }
   void environment;
-  throw new Error("SCOPERANGE_PUBLIC_PRODUCTION_RUNNER_CONFIGURATION_MISSING");
+  log(JSON.stringify(DISABLED_RECEIPT));
+  return DISABLED_RECEIPT;
+}
+
+export async function executeProductionRunner({ environment, log = console.log,
+  clock = () => new Date().toISOString(), randomBytesImpl, signal = AbortSignal.timeout(9 * 60 * 1000),
+  bridgeImpl = executeConfiguredProductionBridge } = {}) {
+  try {
+    const lock = loadProductionSourceLock();
+    const decision = evaluateProductionRunnerGate({ environment, lock });
+    if (decision !== ACCEPTED_GATE_RECEIPT || PRODUCTION_RUNNER_BRIDGE_CONFIGURED !== true) {
+      log(JSON.stringify(DISABLED_RECEIPT));
+      return DISABLED_RECEIPT;
+    }
+    const observedAt = clock();
+    const privateInput = createApprovedProductionInput({ environment, observedAt, randomBytesImpl });
+    const receipt = await bridgeImpl({
+      authorization: decision.authorization,
+      lock,
+      keyMaterial: environment?.SCOPERANGE_PRIVATE_SOURCE_DEPLOY_KEY,
+      privateInput,
+      signal
+    });
+    if (!validPrivateReceipt(receipt)) throw new Error("receipt rejected");
+    log(JSON.stringify(receipt));
+    return receipt;
+  } catch {
+    const receipt = Object.freeze({ ...DISABLED_RECEIPT, reasonCode: "production_run_failed" });
+    log(JSON.stringify(receipt));
+    return receipt;
+  }
 }
 
 export async function executeConfiguredProductionBridge({ authorization, lock, keyMaterial, privateInput, signal,
@@ -114,6 +195,17 @@ export async function executeConfiguredProductionBridge({ authorization, lock, k
 
 const directEntry = process.argv[1] ? pathToFileURL(process.argv[1]).href === import.meta.url : false;
 if (directEntry) {
-  await execute({ environment: process.env });
-  process.exitCode = 1;
+  const mode = process.argv[2];
+  if (mode === "gate") {
+    const decision = evaluateProductionRunnerGate({ environment: process.env });
+    console.log(JSON.stringify(decision));
+    if (decision === ACCEPTED_GATE_RECEIPT) writeAcceptedProductionRunnerOutput(process.env.GITHUB_OUTPUT, decision);
+    process.exitCode = decision === ACCEPTED_GATE_RECEIPT ? 0 : 1;
+  } else if (mode === "run") {
+    const receipt = await executeProductionRunner({ environment: process.env });
+    process.exitCode = receipt.disposition === "evidence_recorded" ? 0 : 1;
+  } else {
+    await execute({ environment: process.env });
+    process.exitCode = 1;
+  }
 }

@@ -1,4 +1,4 @@
-export const PRODUCTION_RUNNER_BRIDGE_CONFIGURED = false;
+export const PRODUCTION_RUNNER_BRIDGE_CONFIGURED = true;
 export const PRODUCTION_RUNNER_ACTIVATION_AUTHORIZED = false;
 
 export const PRODUCTION_RUNNER_AUTHORITY = Object.freeze({
@@ -19,6 +19,7 @@ export const PRODUCTION_RUNNER_CONTRACT = Object.freeze({
   schemaVersion: "scoperange-public-production-runner-contract-v1",
   configured: PRODUCTION_RUNNER_BRIDGE_CONFIGURED,
   activationAuthorized: PRODUCTION_RUNNER_ACTIVATION_AUTHORIZED,
+  activationAuthority: "external_exact_bindings_only",
   exactPublicCommitRequired: true,
   exactPrivateCommitRequired: true,
   credentiallessPublicFetchRequired: true,
