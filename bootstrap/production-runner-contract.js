@@ -25,6 +25,6 @@ export const PRODUCTION_RUNNER_CONTRACT = Object.freeze({
   durableDatabaseLeaseRequired: true,
   evidenceOnlyWriterRequired: true,
   dependencyCacheAllowed: false,
-  recognizedWorkflowPlacement: false,
+  recognizedWorkflowPlacement: true,
   authority: PRODUCTION_RUNNER_AUTHORITY
 });

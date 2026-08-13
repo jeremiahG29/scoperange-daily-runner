@@ -125,11 +125,14 @@ function createSyntheticSourceRepository() {
   return { allowedBundleDigest, lock, repositoryPath };
 }
 
-test("exactly one GitHub workflow is registered", () => {
+test("exactly the inert shell and disabled production workflow are registered", () => {
   const workflows = walkFiles(workflowsRoot)
     .filter((file) => /\.ya?ml$/u.test(file))
     .map((file) => path.relative(root, file).replaceAll("\\", "/"));
-  assert.deepEqual(workflows, [workflowRelativePath]);
+  assert.deepEqual(workflows, [
+    ".github/workflows/scoperange-daily.yml",
+    workflowRelativePath
+  ]);
 });
 
 test("the registered workflow exposes only an inputless reusable-workflow trigger", () => {
@@ -190,7 +193,7 @@ test("the workflow contains no external action, runtime, credential, target, or 
 test("the public exposure contract closes the registered-shell authority boundary", () => {
   const exposure = readJson(exposurePath);
   assert.equal(exposure.schemaVersion, "scoperange-public-runner-exposure-v5");
-  assert.equal(exposure.status, "production_candidate_implemented_unregistered_disabled");
+  assert.equal(exposure.status, "production_workflow_registered_activation_disabled");
   assert.equal(exposure.publicRepositoryCreated, true);
   assert.deepEqual(exposure.registeredWorkflow, {
     path: workflowRelativePath,

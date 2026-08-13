@@ -104,9 +104,13 @@ test("configured bridge keeps secrets in stdin and accepts only a fixed private 
   assert.equal(JSON.stringify(result).includes(canary), false);
 });
 
-test("production candidate is exact-commit-bound, cacheless, disabled, and unregistered", () => {
+test("registered production workflow exactly matches the cacheless disabled candidate", () => {
   const candidatePath = path.resolve("inactive-production-daily-workflow.yml");
+  const registeredPath = path.resolve(".github/workflows/scoperange-daily.yml");
   const candidate = JSON.parse(fs.readFileSync(candidatePath, "utf8"));
+  const registered = JSON.parse(fs.readFileSync(registeredPath, "utf8"));
+  assert.deepEqual(registered, candidate);
+  assert.equal(fs.readFileSync(registeredPath, "utf8"), fs.readFileSync(candidatePath, "utf8"));
   assert.deepEqual(candidate.on, { schedule: [{ cron: "17 09 * * *" }] });
   assert.deepEqual(candidate.permissions, { contents: "read" });
   assert.deepEqual(Object.keys(candidate.jobs), ["gate", "runner"]);
@@ -124,6 +128,7 @@ test("production candidate is exact-commit-bound, cacheless, disabled, and unreg
   assert.match(raw, /SCOPERANGE_APPROVED_PRIVATE_COMMIT/u);
   assert.match(raw, /"package-manager-cache": false/u);
   assert.doesNotMatch(raw, /cache\/restore|cache\/save|upload-artifact|download-artifact/iu);
+  assert.equal(fs.existsSync(registeredPath), true);
   assert.equal(fs.existsSync(path.resolve(".github/workflows/scoperange-production-daily.yml")), false);
   assert.deepEqual(
     Object.keys(candidate.jobs.runner.steps.at(-1).env).sort(),
@@ -144,11 +149,12 @@ test("production candidate is exact-commit-bound, cacheless, disabled, and unreg
   );
 });
 
-test("public exposure inventory identifies production artifacts as unregistered and unconfigured", () => {
+test("public exposure inventory identifies the production workflow as registered but unconfigured", () => {
   const exposure = JSON.parse(fs.readFileSync("public-exposure-contract.json", "utf8"));
   for (const file of [
     "bootstrap/production-runner-contract.js",
     "bootstrap/production-runner-entry.js",
+    ".github/workflows/scoperange-daily.yml",
     "inactive-production-daily-workflow.yml",
     "production-source-lock.example.json",
     "tests/production-runner-candidate.test.mjs"
@@ -157,13 +163,28 @@ test("public exposure inventory identifies production artifacts as unregistered 
   }
   assert.deepEqual(exposure.productionRunner, {
     implementationPresent: true,
-    recognizedWorkflowPlacement: false,
+    recognizedWorkflowPlacement: true,
     configured: false,
     activationAuthorized: false,
     workflowRuns: 0,
     providerWrites: 0,
     productionConnections: 0,
     evidenceWrites: 0,
+    pricingAuthority: false
+  });
+  assert.deepEqual(exposure.registeredProductionWorkflow, {
+    path: ".github/workflows/scoperange-daily.yml",
+    providerStateRequired: "disabled",
+    onlyTrigger: "schedule",
+    schedule: "17 09 * * *",
+    topLevelPermissions: "contents:read",
+    dependencyCacheAllowed: false,
+    exactActionPinsRequired: true,
+    externalCommitBindingConfigured: false,
+    bridgeConfigured: false,
+    activationAuthorized: false,
+    executionAuthorized: false,
+    productionAuthority: false,
     pricingAuthority: false
   });
 });
