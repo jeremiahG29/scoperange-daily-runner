@@ -27,7 +27,7 @@ test("production source lock binds the exact reviewed private bundle without act
   assert.equal(lock.requiredAncestor, lock.approvedParent);
   assert.equal(lock.approvedTree, "802aae2732408c9948c57ff4310e8dfdade9f9dd");
   assert.equal(lock.bundleRoot, "scoperange/pricing-intelligence/production-runner");
-  assert.equal(lock.allowedBundleDigest, "sha256:9d0b50a1f5fa1e8568eff3f68ebbbf84cab50b2613fa20eb7c2c253bdde82b87");
+  assert.equal(lock.allowedBundleDigest, "sha256:484aae9b7bdb67ebbd2cdd16bbbfb7596ac4eab8efccae4b893569b1c551bea0");
   assert.equal(lock.credential.created, false);
   assert.equal(lock.activationAuthorized, false);
 });

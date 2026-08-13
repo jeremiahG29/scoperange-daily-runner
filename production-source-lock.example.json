@@ -16,7 +16,7 @@
     "scoperange/pricing-intelligence/production-runner/production-evidence-writer.js",
     "scoperange/pricing-intelligence/production-runner/public-source-fetch.js"
   ],
-  "allowedBundleDigest": "sha256:9d0b50a1f5fa1e8568eff3f68ebbbf84cab50b2613fa20eb7c2c253bdde82b87",
+  "allowedBundleDigest": "sha256:484aae9b7bdb67ebbd2cdd16bbbfb7596ac4eab8efccae4b893569b1c551bea0",
   "fetch": {
     "refType": "commit_only",
     "allowedRefs": [],
