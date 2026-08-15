@@ -54,7 +54,7 @@
   "registeredProductionWorkflow": {
     "path": ".github/workflows/scoperange-daily.yml",
     "providerStateRequired": "disabled",
-    "onlyTrigger": "schedule",
+    "allowedTriggers": ["schedule", "workflow_dispatch"],
     "schedule": "17 09 * * *",
     "topLevelPermissions": "contents:read",
     "dependencyCacheAllowed": false,

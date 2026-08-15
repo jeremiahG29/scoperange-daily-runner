@@ -121,6 +121,8 @@ test("configured public entry builds one approved nonnumeric exterior-door reche
     SCOPERANGE_APPROVED_PRIVATE_COMMIT: lock.approvedCommit,
     SCOPERANGE_SOURCE_LOCK_DIGEST: sourceLockDigest(lock),
     SCOPERANGE_RELEASE_STATE: "authorized",
+    SCOPERANGE_TRIGGER_EVENT_NAME: "schedule",
+    SCOPERANGE_TRIGGER_RUN_ID: "123456788",
     SCOPERANGE_CONFIG_VERSION: "scoperange-runtime-config-v1",
     SCOPERANGE_CREDENTIAL_NOT_BEFORE: "2026-08-12T00:00:00Z",
     SCOPERANGE_CREDENTIAL_EXPIRES_AT: "2026-10-18T00:00:00Z",
@@ -198,6 +200,36 @@ test("configured public entry builds one approved nonnumeric exterior-door reche
   assert.equal(lines.join("").includes(keyMaterial), false);
 });
 
+test("manual recovery input is bound to the dispatch run and starts immediately", async () => {
+  const plan = await import("../bootstrap/production-runner-plan.js");
+  const environment = {
+    SCOPERANGE_TRIGGER_EVENT_NAME: "workflow_dispatch",
+    SCOPERANGE_TRIGGER_RUN_ID: "123456789",
+    SCOPERANGE_DB_HOST: "aws-0-us-west-1.pooler.supabase.com",
+    SCOPERANGE_DB_PORT: "6543",
+    SCOPERANGE_DB_NAME: "postgres",
+    SCOPERANGE_DB_USER: "scoperange_intelligence_runtime_v1.syntheticprojectref1",
+    SCOPERANGE_DB_PASSWORD: "synthetic-database-password",
+    SCOPERANGE_DB_TLS_SERVER_NAME: "aws-0-us-west-1.pooler.supabase.com",
+    SCOPERANGE_CONFIG_VERSION: "scoperange-runtime-config-v1",
+    SCOPERANGE_CREDENTIAL_VERSION: "scoperange-runtime-credential-v1-20260812T000000Z",
+    SCOPERANGE_CREDENTIAL_NOT_BEFORE: "2026-08-12T00:00:00Z",
+    SCOPERANGE_CREDENTIAL_EXPIRES_AT: "2026-10-18T00:00:00Z",
+    SCOPERANGE_EXPECTED_PROJECT_DIGEST: sha256("supabase-project-ref-v1:syntheticprojectref1")
+  };
+
+  const input = plan.createApprovedProductionInput({
+    environment,
+    observedAt: "2026-08-15T03:30:00.000Z",
+    randomBytesImpl: () => Buffer.alloc(32, 0xab)
+  });
+
+  assert.equal(input.runId, "manual:123456789");
+  assert.equal(input.workItemId, "manual:123456789:src-atlanta-door-refinishing-blog");
+  assert.equal(input.scheduledFor, input.observedAt);
+  assert.equal(input.schedulePolicyVersion, "scoperange-pricing-intelligence-manual-recovery-policy-v1");
+});
+
 test("configured bridge keeps secrets in stdin and accepts only a fixed private receipt", async () => {
   const entry = await import("../bootstrap/production-runner-entry.js");
   const canary = "synthetic-database-password-canary";
@@ -255,7 +287,10 @@ test("registered production workflow exactly matches the cacheless disabled cand
   const registered = JSON.parse(fs.readFileSync(registeredPath, "utf8"));
   assert.deepEqual(registered, candidate);
   assert.equal(fs.readFileSync(registeredPath, "utf8"), fs.readFileSync(candidatePath, "utf8"));
-  assert.deepEqual(candidate.on, { schedule: [{ cron: "17 09 * * *" }] });
+  assert.deepEqual(candidate.on, {
+    schedule: [{ cron: "17 09 * * *" }],
+    workflow_dispatch: {}
+  });
   assert.deepEqual(candidate.permissions, { contents: "read" });
   assert.deepEqual(Object.keys(candidate.jobs), ["gate", "runner"]);
   assert.equal(candidate.jobs.gate.environment, undefined);
@@ -296,8 +331,27 @@ test("registered production workflow exactly matches the cacheless disabled cand
       "SCOPERANGE_APPROVED_PUBLIC_COMMIT",
       "SCOPERANGE_APPROVED_PRIVATE_COMMIT",
       "SCOPERANGE_SOURCE_LOCK_DIGEST",
-      "SCOPERANGE_RELEASE_STATE"
+      "SCOPERANGE_RELEASE_STATE",
+      "SCOPERANGE_TRIGGER_EVENT_NAME",
+      "SCOPERANGE_TRIGGER_RUN_ID"
     ].sort()
+  );
+});
+
+test("registered production workflow exposes only the scheduled and inputless manual recovery triggers", () => {
+  const candidate = JSON.parse(fs.readFileSync("inactive-production-daily-workflow.yml", "utf8"));
+  assert.deepEqual(candidate.on, {
+    schedule: [{ cron: "17 09 * * *" }],
+    workflow_dispatch: {}
+  });
+  assert.match(candidate.jobs.gate.if, /github\.event_name == 'workflow_dispatch'/u);
+  assert.equal(
+    candidate.jobs.runner.steps.at(-1).env.SCOPERANGE_TRIGGER_EVENT_NAME,
+    "${{ github.event_name }}"
+  );
+  assert.equal(
+    candidate.jobs.runner.steps.at(-1).env.SCOPERANGE_TRIGGER_RUN_ID,
+    "${{ github.run_id }}"
   );
 });
 
@@ -328,7 +382,7 @@ test("public exposure inventory identifies the production workflow as registered
   assert.deepEqual(exposure.registeredProductionWorkflow, {
     path: ".github/workflows/scoperange-daily.yml",
     providerStateRequired: "disabled",
-    onlyTrigger: "schedule",
+    allowedTriggers: ["schedule", "workflow_dispatch"],
     schedule: "17 09 * * *",
     topLevelPermissions: "contents:read",
     dependencyCacheAllowed: false,
