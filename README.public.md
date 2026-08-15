@@ -20,6 +20,8 @@ Future production identity requires short-lived claims for audience, repository 
 
 Operational output remains a fixed-schema zero-effect receipt. Unrecognized reason text and configuration values are never reflected into that receipt. Private checkout output, credential material, targets, customer data, evidence, and pricing data remain forbidden from public logs.
 
+Failed production attempts report only one allowlisted boundary code: `configuration_rejected`, `private_source_fetch_rejected`, `private_install_rejected`, or `private_execution_rejected`. These codes distinguish the failed stage without reflecting exception text, commands, paths, credentials, targets, or source content, and they grant no additional execution or production authority.
+
 ## Synthetic adapter gate
 
 The credentialless source adapter can verify an exact bundle in a caller-supplied local Git object fixture. It returns only a fixed-schema verification receipt and never materializes source bytes, reads credentials, invokes a network operation, executes verified code, or exposes repository paths and commit identifiers. It is not imported by the bootstrap entry point or inactive workflow candidate.

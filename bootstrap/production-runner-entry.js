@@ -32,6 +32,12 @@ const PRIVATE_RECEIPT_KEYS = Object.freeze([
   "evidenceWrites", "numericEvidenceCount", "proposalEffects", "promotionEffects",
   "pricingEffects", "productionAuthority"
 ]);
+const FAILURE_REASON_CODES = Object.freeze(new Set([
+  "configuration_rejected",
+  "private_source_fetch_rejected",
+  "private_install_rejected",
+  "private_execution_rejected"
+]));
 
 const ACCEPTED_GATE_RECEIPT = Object.freeze({
   schemaVersion: "scoperange-public-production-runner-gate-receipt-v1",
@@ -97,6 +103,16 @@ function validPrivateReceipt(value) {
     && ["none", "evidence_only"].includes(value.productionAuthority);
 }
 
+function stageFailure(reasonCode) {
+  const error = new Error("SCOPERANGE_PUBLIC_PRODUCTION_STAGE_REJECTED");
+  Object.defineProperty(error, "reasonCode", { value: reasonCode });
+  return error;
+}
+
+function failureReason(error, fallback) {
+  return FAILURE_REASON_CODES.has(error?.reasonCode) ? error.reasonCode : fallback;
+}
+
 async function runProcess(processImpl, value) {
   const result = await processImpl({ ...value, maxOutputBytes: 64 * 1024 });
   if (!result || result.exitCode !== 0 || typeof result.stdout !== "string" || typeof result.stderr !== "string"
@@ -115,6 +131,7 @@ export async function execute({ environment, log = console.log } = {}) {
 export async function executeProductionRunner({ environment, log = console.log,
   clock = () => new Date().toISOString(), randomBytesImpl, signal = AbortSignal.timeout(9 * 60 * 1000),
   bridgeImpl = executeConfiguredProductionBridge } = {}) {
+  let failureReasonCode = "configuration_rejected";
   try {
     const lock = loadProductionSourceLock();
     const decision = evaluateProductionRunnerGate({ environment, lock });
@@ -124,6 +141,7 @@ export async function executeProductionRunner({ environment, log = console.log,
     }
     const observedAt = clock();
     const privateInput = createApprovedProductionInput({ environment, observedAt, randomBytesImpl });
+    failureReasonCode = "private_execution_rejected";
     const receipt = await bridgeImpl({
       authorization: decision.authorization,
       lock,
@@ -134,8 +152,8 @@ export async function executeProductionRunner({ environment, log = console.log,
     if (!validPrivateReceipt(receipt)) throw new Error("receipt rejected");
     log(JSON.stringify(receipt));
     return receipt;
-  } catch {
-    const receipt = Object.freeze({ ...DISABLED_RECEIPT, reasonCode: "production_run_failed" });
+  } catch (error) {
+    const receipt = Object.freeze({ ...DISABLED_RECEIPT, reasonCode: failureReason(error, failureReasonCode) });
     log(JSON.stringify(receipt));
     return receipt;
   }
@@ -143,6 +161,7 @@ export async function executeProductionRunner({ environment, log = console.log,
 
 export async function executeConfiguredProductionBridge({ authorization, lock, keyMaterial, privateInput, signal,
   fetchImpl = fetchLockedPrivateSource, processImpl } = {}) {
+  let failureReasonCode = "configuration_rejected";
   try {
     if (authorization !== PRODUCTION_RUNNER_AUTHORIZATION || lock?.bundleRoot !== PRODUCTION_RUNNER_PRIVATE_BUNDLE
       || typeof keyMaterial !== "string" || !keyMaterial || keyMaterial.length > 16_384
@@ -157,6 +176,7 @@ export async function executeConfiguredProductionBridge({ authorization, lock, k
     const deliveredPrivateInput = privateInput.database
       ? Object.freeze({ ...privateInput, database: Object.freeze({ ...privateInput.database, tlsCa: loadPinnedTlsCa().tlsCaPem }) })
       : privateInput;
+    failureReasonCode = "private_source_fetch_rejected";
     const result = await fetchImpl({
       lock, keyMaterial, signal,
       consumeVerifiedCheckout: async ({ checkoutPath, workspacePath, bundleRoot, runManagedProcess }) => {
@@ -166,6 +186,7 @@ export async function executeConfiguredProductionBridge({ authorization, lock, k
         const selectedProcess = processImpl ?? runManagedProcess;
         if (typeof selectedProcess !== "function") throw new Error("process rejected");
         const cachePath = path.join(workspacePath, "npm-cache");
+        failureReasonCode = "private_install_rejected";
         await runProcess(selectedProcess, {
           program: process.platform === "win32" ? "npm.cmd" : "npm",
           args: ["ci", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", cachePath, "--prefer-offline=false"],
@@ -173,6 +194,7 @@ export async function executeConfiguredProductionBridge({ authorization, lock, k
           env: { npm_config_cache: cachePath, npm_config_ignore_scripts: "true", npm_config_audit: "false", npm_config_fund: "false" },
           stdin: "", signal
         });
+        failureReasonCode = "private_execution_rejected";
         const child = await runProcess(selectedProcess, {
           program: process.execPath, args: ["bridge-entry.js"], cwd: bundlePath,
           env: { NODE_ENV: "production" }, stdin: `${JSON.stringify(deliveredPrivateInput)}\n`, signal
@@ -187,9 +209,9 @@ export async function executeConfiguredProductionBridge({ authorization, lock, k
     });
     if (!consumed || result !== consumedResult) throw new Error("consumption rejected");
     return consumedResult;
-  } catch {
+  } catch (error) {
     if (signal?.aborted) throw new Error("SCOPERANGE_PUBLIC_PRODUCTION_BRIDGE_CANCELLED");
-    throw new Error("SCOPERANGE_PUBLIC_PRODUCTION_BRIDGE_REJECTED");
+    throw stageFailure(failureReason(error, failureReasonCode));
   }
 }
 
