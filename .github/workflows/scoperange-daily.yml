@@ -1,11 +1,11 @@
 {
   "name": "ScopeRange production evidence runner (inactive candidate)",
-  "on": { "schedule": [{ "cron": "17 09 * * *" }] },
+  "on": { "schedule": [{ "cron": "17 09 * * *" }], "workflow_dispatch": {} },
   "permissions": { "contents": "read" },
   "concurrency": { "group": "scoperange-production-evidence-daily-v1", "cancel-in-progress": false },
   "jobs": {
     "gate": {
-      "if": "github.repository == 'jeremiahG29/scoperange-daily-runner' && github.event_name == 'schedule' && github.event.schedule == '17 09 * * *' && github.ref == 'refs/heads/main' && github.run_attempt == 1",
+      "if": "github.repository == 'jeremiahG29/scoperange-daily-runner' && ((github.event_name == 'schedule' && github.event.schedule == '17 09 * * *') || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/main' && github.run_attempt == 1",
       "runs-on": "ubuntu-24.04",
       "timeout-minutes": 1,
       "outputs": { "authorization": "${{ steps.gate.outputs.authorization }}" },
@@ -42,6 +42,8 @@
             "SCOPERANGE_APPROVED_PRIVATE_COMMIT": "${{ vars.SCOPERANGE_APPROVED_PRIVATE_COMMIT }}",
             "SCOPERANGE_SOURCE_LOCK_DIGEST": "${{ vars.SCOPERANGE_SOURCE_LOCK_DIGEST }}",
             "SCOPERANGE_RELEASE_STATE": "${{ vars.SCOPERANGE_RELEASE_STATE }}",
+            "SCOPERANGE_TRIGGER_EVENT_NAME": "${{ github.event_name }}",
+            "SCOPERANGE_TRIGGER_RUN_ID": "${{ github.run_id }}",
             "SCOPERANGE_CONFIG_VERSION": "${{ secrets.SCOPERANGE_CONFIG_VERSION }}",
             "SCOPERANGE_CREDENTIAL_EXPIRES_AT": "${{ secrets.SCOPERANGE_CREDENTIAL_EXPIRES_AT }}",
             "SCOPERANGE_CREDENTIAL_NOT_BEFORE": "${{ secrets.SCOPERANGE_CREDENTIAL_NOT_BEFORE }}",

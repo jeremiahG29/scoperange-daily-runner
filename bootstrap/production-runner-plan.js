@@ -66,9 +66,16 @@ export function createApprovedProductionInput({ environment, observedAt, randomB
   if (!Buffer.isBuffer(leaseBytes) || leaseBytes.length !== 32) {
     throw new Error("SCOPERANGE_PUBLIC_PRODUCTION_CONFIGURATION_REJECTED");
   }
+  const triggerEventName = required(environment, "SCOPERANGE_TRIGGER_EVENT_NAME");
+  const triggerRunId = required(environment, "SCOPERANGE_TRIGGER_RUN_ID");
+  if (!/^[1-9][0-9]{0,19}$/u.test(triggerRunId)
+    || !["schedule", "workflow_dispatch"].includes(triggerEventName)) {
+    throw new Error("SCOPERANGE_PUBLIC_PRODUCTION_CONFIGURATION_REJECTED");
+  }
   const day = observedAt.slice(0, 10);
-  const scheduledFor = `${day}T09:17:00.000Z`;
-  const runId = `daily:${day}`;
+  const manualRecovery = triggerEventName === "workflow_dispatch";
+  const scheduledFor = manualRecovery ? observedAt : `${day}T09:17:00.000Z`;
+  const runId = manualRecovery ? `manual:${triggerRunId}` : `daily:${day}`;
 
   return Object.freeze({
     schemaVersion: "scoperange-production-runner-input-v1",
@@ -82,7 +89,9 @@ export function createApprovedProductionInput({ environment, observedAt, randomB
     catalogCreatedAt: "2026-07-24T00:00:00.000Z",
     observedAt,
     planDigest: digest(APPROVED_INITIAL_SOURCE_PLAN),
-    schedulePolicyVersion: "scoperange-pricing-intelligence-schedule-policy-v1",
+    schedulePolicyVersion: manualRecovery
+      ? "scoperange-pricing-intelligence-manual-recovery-policy-v1"
+      : "scoperange-pricing-intelligence-schedule-policy-v1",
     budgets: BUDGETS,
     database: Object.freeze({
       host: required(environment, "SCOPERANGE_DB_HOST"),
