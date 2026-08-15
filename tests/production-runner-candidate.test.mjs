@@ -200,6 +200,104 @@ test("configured public entry builds one approved nonnumeric exterior-door reche
   assert.equal(lines.join("").includes(keyMaterial), false);
 });
 
+test("production failures expose only fixed non-sensitive stage reason codes", async () => {
+  const entry = await import("../bootstrap/production-runner-entry.js");
+  const lock = JSON.parse(fs.readFileSync("production-source-lock.example.json", "utf8"));
+  const publicCommit = "f8c816c6f20fd7becff8d3da458ccc27fb85882a";
+  const canary = "synthetic-sensitive-error-canary";
+  const baseEnvironment = {
+    SCOPERANGE_OBSERVED_PUBLIC_COMMIT: publicCommit,
+    SCOPERANGE_APPROVED_PUBLIC_COMMIT: publicCommit,
+    SCOPERANGE_APPROVED_PRIVATE_COMMIT: lock.approvedCommit,
+    SCOPERANGE_SOURCE_LOCK_DIGEST: sourceLockDigest(lock),
+    SCOPERANGE_RELEASE_STATE: "authorized",
+    SCOPERANGE_TRIGGER_EVENT_NAME: "workflow_dispatch",
+    SCOPERANGE_TRIGGER_RUN_ID: "123456790",
+    SCOPERANGE_CONFIG_VERSION: "scoperange-runtime-config-v1",
+    SCOPERANGE_CREDENTIAL_NOT_BEFORE: "2026-08-12T00:00:00Z",
+    SCOPERANGE_CREDENTIAL_EXPIRES_AT: "2026-10-18T00:00:00Z",
+    SCOPERANGE_CREDENTIAL_VERSION: "scoperange-runtime-credential-v1-20260812T000000Z",
+    SCOPERANGE_PRIVATE_SOURCE_DEPLOY_KEY: "synthetic-private-source-key",
+    SCOPERANGE_DB_HOST: "aws-0-us-west-1.pooler.supabase.com",
+    SCOPERANGE_DB_PORT: "6543",
+    SCOPERANGE_DB_NAME: "postgres",
+    SCOPERANGE_DB_USER: "scoperange_intelligence_runtime_v1.syntheticprojectref1",
+    SCOPERANGE_DB_PASSWORD: "synthetic-database-password",
+    SCOPERANGE_DB_TLS_SERVER_NAME: "aws-0-us-west-1.pooler.supabase.com",
+    SCOPERANGE_EXPECTED_PROJECT_DIGEST: sha256("supabase-project-ref-v1:syntheticprojectref1")
+  };
+  const expectedKeys = [
+    "schemaVersion", "disposition", "reasonCode", "secretReads", "privateSourceFetches",
+    "publicSourceRequests", "databaseConnections", "evidenceWrites", "proposalEffects",
+    "promotionEffects", "pricingEffects", "productionAuthority"
+  ].sort();
+  const cases = [
+    {
+      reasonCode: "configuration_rejected",
+      environment: { ...baseEnvironment, SCOPERANGE_TRIGGER_RUN_ID: undefined },
+      bridgeImpl: async () => { throw new Error("bridge must not be reached"); }
+    },
+    {
+      reasonCode: "private_source_fetch_rejected",
+      environment: baseEnvironment,
+      bridgeImpl: (value) => entry.executeConfiguredProductionBridge({
+        ...value,
+        fetchImpl: async () => { throw new Error(canary); }
+      })
+    },
+    {
+      reasonCode: "private_install_rejected",
+      environment: baseEnvironment,
+      bridgeImpl: (value) => entry.executeConfiguredProductionBridge({
+        ...value,
+        fetchImpl: async (fetchValue) => fetchValue.consumeVerifiedCheckout({
+          checkoutPath: path.resolve("synthetic-checkout"),
+          workspacePath: path.resolve("synthetic-workspace"),
+          bundleRoot: fetchValue.lock.bundleRoot,
+          runManagedProcess: async () => ({ exitCode: 1, stdout: "", stderr: canary })
+        })
+      })
+    },
+    {
+      reasonCode: "private_execution_rejected",
+      environment: baseEnvironment,
+      bridgeImpl: (value) => {
+        let call = 0;
+        return entry.executeConfiguredProductionBridge({
+          ...value,
+          fetchImpl: async (fetchValue) => fetchValue.consumeVerifiedCheckout({
+            checkoutPath: path.resolve("synthetic-checkout"),
+            workspacePath: path.resolve("synthetic-workspace"),
+            bundleRoot: fetchValue.lock.bundleRoot,
+            runManagedProcess: async () => {
+              call += 1;
+              return call === 1
+                ? { exitCode: 0, stdout: "installed\n", stderr: "" }
+                : { exitCode: 1, stdout: "", stderr: canary };
+            }
+          })
+        });
+      }
+    }
+  ];
+
+  for (const testCase of cases) {
+    const lines = [];
+    const receipt = await entry.executeProductionRunner({
+      environment: testCase.environment,
+      clock: () => "2026-08-15T03:30:00.000Z",
+      randomBytesImpl: () => Buffer.alloc(32, 0xab),
+      signal: new AbortController().signal,
+      bridgeImpl: testCase.bridgeImpl,
+      log: (line) => lines.push(line)
+    });
+    assert.equal(receipt.reasonCode, testCase.reasonCode);
+    assert.deepEqual(Object.keys(receipt).sort(), expectedKeys);
+    assert.deepEqual(lines, [JSON.stringify(receipt)]);
+    assert.equal(lines[0].includes(canary), false);
+  }
+});
+
 test("manual recovery input is bound to the dispatch run and starts immediately", async () => {
   const plan = await import("../bootstrap/production-runner-plan.js");
   const environment = {
