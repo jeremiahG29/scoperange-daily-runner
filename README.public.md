@@ -20,7 +20,7 @@ Future production identity requires short-lived claims for audience, repository 
 
 Operational output remains a fixed-schema zero-effect receipt. Unrecognized reason text and configuration values are never reflected into that receipt. Private checkout output, credential material, targets, customer data, evidence, and pricing data remain forbidden from public logs.
 
-Failed production attempts report only one allowlisted boundary code. Private-source failures distinguish key material, Git initialization, exact-commit fetch, checkout, and source-lock verification from later dependency-install and private-execution failures. The deploy-key boundary removes a single transport BOM, normalizes CRLF or CR line endings to LF, and requires a canonical OpenSSH private-key envelope before any Git command. These fixed codes never reflect exception text, commands, paths, credentials, targets, or source content, and they grant no additional execution or production authority.
+Failed production attempts report only one allowlisted boundary code. Private-source failures distinguish key material, Git initialization, exact-commit fetch, checkout, and source-lock verification from later dependency-install and private-execution failures. The deploy-key boundary removes a single transport BOM, normalizes CRLF or CR line endings to LF, requires a canonical OpenSSH private-key envelope, and performs an offline `ssh-keygen` validation before any Git command. These fixed codes never reflect exception text, commands, paths, credentials, targets, or source content, and they grant no additional execution or production authority.
 
 ## Synthetic adapter gate
 
