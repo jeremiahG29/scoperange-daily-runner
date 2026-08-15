@@ -233,6 +233,25 @@ test("exact fetch uses one commit-only local fixture operation and deletes the k
   assert.equal(fs.existsSync(keyPath), false);
 });
 
+test("real deploy-key material is normalized from Windows transport before SSH use", async () => {
+  const sourceLock = await import("../bootstrap/source-lock.js");
+  const begin = ["-----BEGIN OPENSSH", "PRIVATE KEY-----"].join(" ");
+  const end = ["-----END OPENSSH", "PRIVATE KEY-----"].join(" ");
+  const transported = `\ufeff${begin}\r\nbGluZQ==\r\n${end}\r\n`;
+  const observed = await sourceLock.withEphemeralWorkspace({
+    keyMaterial: transported,
+    timeoutMs: 1000,
+    operation: ({ identityPath }) => fs.readFileSync(identityPath, "utf8")
+  });
+
+  assert.equal(
+    observed,
+    `${begin}\nbGluZQ==\n${end}\n`
+  );
+  assert.equal(observed.includes("\r"), false);
+  assert.equal(observed.startsWith("\ufeff"), false);
+});
+
 test("a verified checkout can be consumed only inside its ephemeral workspace", async (context) => {
   const sourceLock = await import("../bootstrap/source-lock.js");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-fetch-consumer-"));
@@ -290,6 +309,41 @@ test("fetch cancellation and failure are sanitized and leave no ephemeral worksp
   );
   const after = new Set(fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("scoperange-public-runner-")));
   assert.deepEqual(after, before);
+});
+
+test("source fetch failures expose only fixed non-sensitive substages", async (context) => {
+  const sourceLock = await import("../bootstrap/source-lock.js");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-fetch-stages-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const { lock } = fixtureLock(directory);
+  const canary = "synthetic-source-stage-canary";
+  const cases = [
+    { reasonCode: "private_source_key_rejected", keyMaterial: `key\0${canary}`, rejectAt: null },
+    { reasonCode: "private_source_git_init_rejected", keyMaterial: "synthetic-key", rejectAt: 1 },
+    { reasonCode: "private_source_git_fetch_rejected", keyMaterial: "synthetic-key", rejectAt: 2 },
+    { reasonCode: "private_source_checkout_rejected", keyMaterial: "synthetic-key", rejectAt: 3 },
+    { reasonCode: "private_source_verification_rejected", keyMaterial: "synthetic-key", rejectAt: null }
+  ];
+
+  for (const testCase of cases) {
+    let calls = 0;
+    await assert.rejects(
+      sourceLock.fetchLockedPrivateSource({
+        lock,
+        keyMaterial: testCase.keyMaterial,
+        signal: new AbortController().signal,
+        spawnImpl: async () => {
+          calls += 1;
+          return calls === testCase.rejectAt
+            ? { exitCode: 1, stdout: "", stderr: canary }
+            : { exitCode: 0, stdout: "", stderr: "" };
+        }
+      }),
+      (error) => error.message === "SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED"
+        && error.reasonCode === testCase.reasonCode
+        && !error.message.includes(canary)
+    );
+  }
 });
 
 test("a stubborn real child is forcibly terminated before ephemeral cleanup completes", async (context) => {

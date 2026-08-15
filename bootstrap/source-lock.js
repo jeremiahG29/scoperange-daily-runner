@@ -25,6 +25,12 @@ function fail(reasonCode) {
   throw new Error(`SCOPERANGE_PUBLIC_SOURCE_LOCK_REJECTED:${reasonCode}`);
 }
 
+function sourceStageFailure(reasonCode) {
+  const error = new Error("SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED");
+  Object.defineProperty(error, "reasonCode", { value: reasonCode });
+  return error;
+}
+
 function validateSourceLock(lock) {
   if (!lock || lock.schemaVersion !== "scoperange-public-runner-source-lock-v1"
     || typeof lock.lockVersion !== "string" || !lock.lockVersion
@@ -242,13 +248,17 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, keyMaterial, ope
     || typeof operation !== "function" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 90_000) {
     fail("ephemeral_input_rejected");
   }
+  const writtenKeyMaterial = usingFakeKey
+    ? selectedKeyMaterial
+    : selectedKeyMaterial.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
+  if (!writtenKeyMaterial) fail("ephemeral_input_rejected");
   const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-public-runner-"));
   const sshDirectory = path.join(workspacePath, "ssh");
   const checkoutPath = path.join(workspacePath, "checkout");
   fs.mkdirSync(sshDirectory, { mode: 0o700 });
   fs.mkdirSync(checkoutPath, { mode: 0o700 });
   const identityPath = path.join(sshDirectory, "identity");
-  fs.writeFileSync(identityPath, selectedKeyMaterial, { encoding: "utf8", mode: 0o600 });
+  fs.writeFileSync(identityPath, writtenKeyMaterial, { encoding: "utf8", mode: 0o600 });
 
   let timeout;
   let abortListener;
@@ -463,6 +473,7 @@ export async function fetchLockedPrivateSource({
   signal,
   consumeVerifiedCheckout
 } = {}) {
+  let failureReasonCode = "private_source_key_rejected";
   try {
     validateSourceLock(lock);
     if (lock.requiredAncestor !== lock.approvedParent
@@ -502,6 +513,7 @@ export async function fetchLockedPrivateSource({
           GIT_CONFIG_VALUE_0: "",
           GIT_SSH_COMMAND: sshCommand
         };
+        failureReasonCode = "private_source_git_init_rejected";
         await runFetchCommand({
           spawnImpl: selectedSpawnImpl,
           args: ["init", "--quiet", checkoutPath],
@@ -509,6 +521,7 @@ export async function fetchLockedPrivateSource({
           env,
           signal: operationSignal
         });
+        failureReasonCode = "private_source_git_fetch_rejected";
         await runFetchCommand({
           spawnImpl: selectedSpawnImpl,
           args: [
@@ -525,6 +538,7 @@ export async function fetchLockedPrivateSource({
           env,
           signal: operationSignal
         });
+        failureReasonCode = "private_source_checkout_rejected";
         await runFetchCommand({
           spawnImpl: selectedSpawnImpl,
           args: ["-C", checkoutPath, "checkout", "--quiet", "--detach", lock.approvedCommit],
@@ -532,6 +546,7 @@ export async function fetchLockedPrivateSource({
           env,
           signal: operationSignal
         });
+        failureReasonCode = "private_source_verification_rejected";
         const verification = verifyLocalCheckout({ checkoutPath, lock });
         if (consumeVerifiedCheckout === undefined) return verification;
         return consumeVerifiedCheckout({
@@ -544,6 +559,6 @@ export async function fetchLockedPrivateSource({
     });
   } catch {
     if (signal?.aborted) throw new Error("SCOPERANGE_PUBLIC_SOURCE_FETCH_CANCELLED");
-    throw new Error("SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED");
+    throw sourceStageFailure(failureReasonCode);
   }
 }
