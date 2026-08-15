@@ -20,7 +20,7 @@ Future production identity requires short-lived claims for audience, repository 
 
 Operational output remains a fixed-schema zero-effect receipt. Unrecognized reason text and configuration values are never reflected into that receipt. Private checkout output, credential material, targets, customer data, evidence, and pricing data remain forbidden from public logs.
 
-Failed production attempts report only one allowlisted boundary code: `configuration_rejected`, `private_source_fetch_rejected`, `private_install_rejected`, or `private_execution_rejected`. These codes distinguish the failed stage without reflecting exception text, commands, paths, credentials, targets, or source content, and they grant no additional execution or production authority.
+Failed production attempts report only one allowlisted boundary code. Private-source failures distinguish key material, Git initialization, exact-commit fetch, checkout, and source-lock verification from later dependency-install and private-execution failures. The deploy-key boundary removes a single transport BOM and normalizes CRLF or CR line endings to LF before SSH use, without changing key content otherwise. These fixed codes never reflect exception text, commands, paths, credentials, targets, or source content, and they grant no additional execution or production authority.
 
 ## Synthetic adapter gate
 

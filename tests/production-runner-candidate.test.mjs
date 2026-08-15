@@ -246,6 +246,15 @@ test("production failures expose only fixed non-sensitive stage reason codes", a
       })
     },
     {
+      reasonCode: "private_source_git_fetch_rejected",
+      environment: baseEnvironment,
+      bridgeImpl: async () => {
+        const error = new Error("SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED");
+        Object.defineProperty(error, "reasonCode", { value: "private_source_git_fetch_rejected" });
+        throw error;
+      }
+    },
+    {
       reasonCode: "private_install_rejected",
       environment: baseEnvironment,
       bridgeImpl: (value) => entry.executeConfiguredProductionBridge({

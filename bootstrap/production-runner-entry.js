@@ -35,6 +35,11 @@ const PRIVATE_RECEIPT_KEYS = Object.freeze([
 const FAILURE_REASON_CODES = Object.freeze(new Set([
   "configuration_rejected",
   "private_source_fetch_rejected",
+  "private_source_key_rejected",
+  "private_source_git_init_rejected",
+  "private_source_git_fetch_rejected",
+  "private_source_checkout_rejected",
+  "private_source_verification_rejected",
   "private_install_rejected",
   "private_execution_rejected"
 ]));
