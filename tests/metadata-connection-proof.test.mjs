@@ -9,7 +9,7 @@ import test from "node:test";
 const approvedCommit = "a".repeat(40);
 const expectedTlsCaSha256 = "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7";
 const expectedTlsCaFingerprint = "80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA";
-const syntheticPrivateKeyMaterial = [
+const truncatedPrivateKeyMaterial = [
   ["-----BEGIN OPENSSH", "PRIVATE KEY-----"].join(" "),
   "b3BlbnNzaC1rZXktdjEAc3ludGhldGlj",
   ["-----END OPENSSH", "PRIVATE KEY-----"].join(" "),
@@ -70,6 +70,30 @@ function git(cwd, args) {
   return result.stdout.trim();
 }
 
+function generateSyntheticDeployKey(root) {
+  const identityPath = path.join(root, "synthetic-deploy-key");
+  const result = spawnSync("ssh-keygen", [
+    "-q", "-t", "ed25519", "-N", "", "-C", "synthetic@example.invalid", "-f", identityPath
+  ], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env },
+    windowsHide: true
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const derived = spawnSync("ssh-keygen", ["-y", "-f", identityPath], {
+    cwd: root,
+    encoding: "utf8",
+    env: { ...process.env },
+    windowsHide: true
+  });
+  assert.equal(derived.status, 0, derived.stderr);
+  return {
+    keyMaterial: fs.readFileSync(identityPath, "utf8"),
+    publicKey: derived.stdout.trim()
+  };
+}
+
 function fixtureLock(root) {
   const source = path.join(root, "source");
   const bare = path.join(root, "private.git");
@@ -105,8 +129,11 @@ function fixtureLock(root) {
   const canonical = entries.map((entry) => `${entry.mode}\t${entry.oid}\t${entry.path}\n`).join("");
   const allowedBundleDigest = `sha256:${crypto.createHash("sha256").update(canonical, "utf8").digest("hex")}`;
   git(root, ["clone", "--quiet", "--bare", source, bare]);
+  const { keyMaterial, publicKey } = generateSyntheticDeployKey(root);
   return {
     bare,
+    keyMaterial,
+    publicKey,
     lock: {
       schemaVersion: "scoperange-public-runner-source-lock-v1",
       lockVersion: "synthetic-connection-proof-v1",
@@ -140,11 +167,15 @@ function fixtureLock(root) {
   };
 }
 
-function localGitSpawner(bare, records) {
+function localGitSpawner(bare, records, publicKey) {
   const remote = "git@github.com:jeremiahG29/scopematch.git";
   return ({ program, args, cwd, env, signal }) => new Promise((resolve, reject) => {
     const mapped = args.map((arg) => arg === remote ? bare : arg);
     records.push({ program, args: [...args], cwd, env: { ...env } });
+    if (program === "ssh-keygen") {
+      resolve({ exitCode: 0, stdout: `${publicKey}\n`, stderr: "" });
+      return;
+    }
     if (signal.aborted) {
       reject(new Error("synthetic cancelled"));
       return;
@@ -205,12 +236,12 @@ test("exact fetch uses one commit-only local fixture operation and deletes the k
   const sourceLock = await import("../bootstrap/source-lock.js");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-fetch-fixture-"));
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const { bare, lock } = fixtureLock(directory);
+  const { bare, keyMaterial, lock, publicKey } = fixtureLock(directory);
   const records = [];
   const result = await sourceLock.fetchLockedPrivateSource({
     lock,
-    keyMaterial: syntheticPrivateKeyMaterial,
-    spawnImpl: localGitSpawner(bare, records),
+    keyMaterial,
+    spawnImpl: localGitSpawner(bare, records, publicKey),
     signal: new AbortController().signal
   });
 
@@ -239,21 +270,19 @@ test("exact fetch uses one commit-only local fixture operation and deletes the k
   assert.equal(fs.existsSync(keyPath), false);
 });
 
-test("real deploy-key material is normalized from Windows transport before SSH use", async () => {
+test("real deploy-key material is normalized from Windows transport before SSH use", async (context) => {
   const sourceLock = await import("../bootstrap/source-lock.js");
-  const begin = ["-----BEGIN OPENSSH", "PRIVATE KEY-----"].join(" ");
-  const end = ["-----END OPENSSH", "PRIVATE KEY-----"].join(" ");
-  const transported = `\ufeff${begin}\r\nb3BlbnNzaC1rZXktdjEAc3ludGhldGlj\r\n${end}\r\n`;
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-key-normalization-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const { keyMaterial } = generateSyntheticDeployKey(directory);
+  const transported = `\ufeff${keyMaterial.replace(/\n/gu, "\r\n")}`;
   const observed = await sourceLock.withEphemeralWorkspace({
     keyMaterial: transported,
     timeoutMs: 1000,
     operation: ({ identityPath }) => fs.readFileSync(identityPath, "utf8")
   });
 
-  assert.equal(
-    observed,
-    `${begin}\nb3BlbnNzaC1rZXktdjEAc3ludGhldGlj\n${end}\n`
-  );
+  assert.equal(observed, keyMaterial);
   assert.equal(observed.includes("\r"), false);
   assert.equal(observed.startsWith("\ufeff"), false);
 });
@@ -279,18 +308,34 @@ test("malformed deploy-key material is rejected before any Git command", async (
       && error.reasonCode === "private_source_key_rejected"
   );
   assert.equal(processCalls, 0);
+
+  const programs = [];
+  await assert.rejects(
+    sourceLock.fetchLockedPrivateSource({
+      lock,
+      keyMaterial: truncatedPrivateKeyMaterial,
+      spawnImpl: async ({ program }) => {
+        programs.push(program);
+        return { exitCode: 1, stdout: "", stderr: "synthetic-key-validation-rejection" };
+      },
+      signal: new AbortController().signal
+    }),
+    (error) => error.message === "SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED"
+      && error.reasonCode === "private_source_key_rejected"
+  );
+  assert.deepEqual(programs, ["ssh-keygen"]);
 });
 
 test("a verified checkout can be consumed only inside its ephemeral workspace", async (context) => {
   const sourceLock = await import("../bootstrap/source-lock.js");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-fetch-consumer-"));
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const { bare, lock } = fixtureLock(directory);
+  const { bare, keyMaterial, lock, publicKey } = fixtureLock(directory);
   let checkoutPath;
   const consumed = await sourceLock.fetchLockedPrivateSource({
     lock,
-    keyMaterial: syntheticPrivateKeyMaterial,
-    spawnImpl: localGitSpawner(bare, []),
+    keyMaterial,
+    spawnImpl: localGitSpawner(bare, [], publicKey),
     signal: new AbortController().signal,
     consumeVerifiedCheckout: async (value) => {
       assert.deepEqual(
@@ -311,13 +356,13 @@ test("fetch cancellation and failure are sanitized and leave no ephemeral worksp
   const sourceLock = await import("../bootstrap/source-lock.js");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-fetch-failure-"));
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const { lock } = fixtureLock(directory);
+  const { keyMaterial, lock } = fixtureLock(directory);
   const canary = "synthetic-private-key-path-canary";
   const before = new Set(fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith("scoperange-public-runner-")));
   await assert.rejects(
     sourceLock.fetchLockedPrivateSource({
       lock,
-      keyMaterial: syntheticPrivateKeyMaterial,
+      keyMaterial,
       spawnImpl: async () => { throw new Error(canary); },
       signal: new AbortController().signal
     }),
@@ -329,7 +374,7 @@ test("fetch cancellation and failure are sanitized and leave no ephemeral worksp
   await assert.rejects(
     sourceLock.fetchLockedPrivateSource({
       lock,
-      keyMaterial: syntheticPrivateKeyMaterial,
+      keyMaterial,
       spawnImpl: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
       signal: cancelled.signal
     }),
@@ -344,14 +389,14 @@ test("source fetch failures expose only fixed non-sensitive substages", async (c
   const sourceLock = await import("../bootstrap/source-lock.js");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-fetch-stages-"));
   context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
-  const { lock } = fixtureLock(directory);
+  const { keyMaterial, lock, publicKey } = fixtureLock(directory);
   const canary = "synthetic-source-stage-canary";
   const cases = [
     { reasonCode: "private_source_key_rejected", keyMaterial: `key\0${canary}`, rejectAt: null },
-    { reasonCode: "private_source_git_init_rejected", keyMaterial: syntheticPrivateKeyMaterial, rejectAt: 1 },
-    { reasonCode: "private_source_git_fetch_rejected", keyMaterial: syntheticPrivateKeyMaterial, rejectAt: 2 },
-    { reasonCode: "private_source_checkout_rejected", keyMaterial: syntheticPrivateKeyMaterial, rejectAt: 3 },
-    { reasonCode: "private_source_verification_rejected", keyMaterial: syntheticPrivateKeyMaterial, rejectAt: null }
+    { reasonCode: "private_source_git_init_rejected", keyMaterial, rejectAt: 2 },
+    { reasonCode: "private_source_git_fetch_rejected", keyMaterial, rejectAt: 3 },
+    { reasonCode: "private_source_checkout_rejected", keyMaterial, rejectAt: 4 },
+    { reasonCode: "private_source_verification_rejected", keyMaterial, rejectAt: null }
   ];
 
   for (const testCase of cases) {
@@ -361,11 +406,14 @@ test("source fetch failures expose only fixed non-sensitive substages", async (c
         lock,
         keyMaterial: testCase.keyMaterial,
         signal: new AbortController().signal,
-        spawnImpl: async () => {
+        spawnImpl: async ({ program }) => {
           calls += 1;
-          return calls === testCase.rejectAt
-            ? { exitCode: 1, stdout: "", stderr: canary }
-            : { exitCode: 0, stdout: "", stderr: "" };
+          if (calls === testCase.rejectAt) return { exitCode: 1, stdout: "", stderr: canary };
+          return {
+            exitCode: 0,
+            stdout: program === "ssh-keygen" ? `${publicKey}\n` : "",
+            stderr: ""
+          };
         }
       }),
       (error) => error.message === "SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED"

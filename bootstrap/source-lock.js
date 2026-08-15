@@ -490,6 +490,23 @@ async function runFetchCommand({ spawnImpl, args, cwd, env, signal }) {
   }
 }
 
+async function validatePrivateKeyFile({ spawnImpl, identityPath, cwd, env, signal }) {
+  const result = await spawnImpl({
+    program: "ssh-keygen",
+    args: ["-y", "-f", identityPath],
+    cwd,
+    env,
+    signal,
+    maxOutputBytes: 2048
+  });
+  const publicKey = typeof result?.stdout === "string" ? result.stdout.trim() : "";
+  if (!result || result.exitCode !== 0 || typeof result.stderr !== "string"
+    || Buffer.byteLength(result.stdout ?? "", "utf8") + Buffer.byteLength(result.stderr ?? "", "utf8") > 2048
+    || !/^ssh-ed25519 [A-Za-z0-9+/]+={0,2}(?: [\x20-\x7e]{1,256})?$/u.test(publicKey)) {
+    throw new Error("source key rejected");
+  }
+}
+
 export async function fetchLockedPrivateSource({
   lock,
   keyMaterial,
@@ -538,6 +555,13 @@ export async function fetchLockedPrivateSource({
           GIT_CONFIG_VALUE_0: "",
           GIT_SSH_COMMAND: sshCommand
         };
+        await validatePrivateKeyFile({
+          spawnImpl: selectedSpawnImpl,
+          identityPath,
+          cwd: workspacePath,
+          env,
+          signal: operationSignal
+        });
         failureReasonCode = "private_source_git_init_rejected";
         await runFetchCommand({
           spawnImpl: selectedSpawnImpl,
