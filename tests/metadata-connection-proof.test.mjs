@@ -9,6 +9,12 @@ import test from "node:test";
 const approvedCommit = "a".repeat(40);
 const expectedTlsCaSha256 = "700723581420dd1ac98fd7e9ac529f0ef210eadcaf87fc868a3ad7d114c2f3b7";
 const expectedTlsCaFingerprint = "80:70:25:AD:50:D4:ED:21:9D:2C:9C:7D:29:9C:00:4F:82:4E:B0:0C:F7:F6:5A:FE:F6:07:D0:7B:72:E6:CA:FA";
+const syntheticPrivateKeyMaterial = [
+  ["-----BEGIN OPENSSH", "PRIVATE KEY-----"].join(" "),
+  "b3BlbnNzaC1rZXktdjEAc3ludGhldGlj",
+  ["-----END OPENSSH", "PRIVATE KEY-----"].join(" "),
+  ""
+].join("\n");
 
 function validSyntheticGitHubEnvelope() {
   return {
@@ -203,7 +209,7 @@ test("exact fetch uses one commit-only local fixture operation and deletes the k
   const records = [];
   const result = await sourceLock.fetchLockedPrivateSource({
     lock,
-    keyMaterial: "synthetic-key-material-for-local-fixture",
+    keyMaterial: syntheticPrivateKeyMaterial,
     spawnImpl: localGitSpawner(bare, records),
     signal: new AbortController().signal
   });
@@ -237,7 +243,7 @@ test("real deploy-key material is normalized from Windows transport before SSH u
   const sourceLock = await import("../bootstrap/source-lock.js");
   const begin = ["-----BEGIN OPENSSH", "PRIVATE KEY-----"].join(" ");
   const end = ["-----END OPENSSH", "PRIVATE KEY-----"].join(" ");
-  const transported = `\ufeff${begin}\r\nbGluZQ==\r\n${end}\r\n`;
+  const transported = `\ufeff${begin}\r\nb3BlbnNzaC1rZXktdjEAc3ludGhldGlj\r\n${end}\r\n`;
   const observed = await sourceLock.withEphemeralWorkspace({
     keyMaterial: transported,
     timeoutMs: 1000,
@@ -246,10 +252,33 @@ test("real deploy-key material is normalized from Windows transport before SSH u
 
   assert.equal(
     observed,
-    `${begin}\nbGluZQ==\n${end}\n`
+    `${begin}\nb3BlbnNzaC1rZXktdjEAc3ludGhldGlj\n${end}\n`
   );
   assert.equal(observed.includes("\r"), false);
   assert.equal(observed.startsWith("\ufeff"), false);
+});
+
+test("malformed deploy-key material is rejected before any Git command", async (context) => {
+  const sourceLock = await import("../bootstrap/source-lock.js");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-key-preflight-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const { lock } = fixtureLock(directory);
+  let processCalls = 0;
+
+  await assert.rejects(
+    sourceLock.fetchLockedPrivateSource({
+      lock,
+      keyMaterial: "ssh-ed25519 synthetic-public-key-must-not-be-used-as-private-material",
+      spawnImpl: async () => {
+        processCalls += 1;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      },
+      signal: new AbortController().signal
+    }),
+    (error) => error.message === "SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED"
+      && error.reasonCode === "private_source_key_rejected"
+  );
+  assert.equal(processCalls, 0);
 });
 
 test("a verified checkout can be consumed only inside its ephemeral workspace", async (context) => {
@@ -260,7 +289,7 @@ test("a verified checkout can be consumed only inside its ephemeral workspace", 
   let checkoutPath;
   const consumed = await sourceLock.fetchLockedPrivateSource({
     lock,
-    keyMaterial: "synthetic-key-material-for-consumer-fixture",
+    keyMaterial: syntheticPrivateKeyMaterial,
     spawnImpl: localGitSpawner(bare, []),
     signal: new AbortController().signal,
     consumeVerifiedCheckout: async (value) => {
@@ -288,7 +317,7 @@ test("fetch cancellation and failure are sanitized and leave no ephemeral worksp
   await assert.rejects(
     sourceLock.fetchLockedPrivateSource({
       lock,
-      keyMaterial: canary,
+      keyMaterial: syntheticPrivateKeyMaterial,
       spawnImpl: async () => { throw new Error(canary); },
       signal: new AbortController().signal
     }),
@@ -300,7 +329,7 @@ test("fetch cancellation and failure are sanitized and leave no ephemeral worksp
   await assert.rejects(
     sourceLock.fetchLockedPrivateSource({
       lock,
-      keyMaterial: canary,
+      keyMaterial: syntheticPrivateKeyMaterial,
       spawnImpl: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
       signal: cancelled.signal
     }),
@@ -319,10 +348,10 @@ test("source fetch failures expose only fixed non-sensitive substages", async (c
   const canary = "synthetic-source-stage-canary";
   const cases = [
     { reasonCode: "private_source_key_rejected", keyMaterial: `key\0${canary}`, rejectAt: null },
-    { reasonCode: "private_source_git_init_rejected", keyMaterial: "synthetic-key", rejectAt: 1 },
-    { reasonCode: "private_source_git_fetch_rejected", keyMaterial: "synthetic-key", rejectAt: 2 },
-    { reasonCode: "private_source_checkout_rejected", keyMaterial: "synthetic-key", rejectAt: 3 },
-    { reasonCode: "private_source_verification_rejected", keyMaterial: "synthetic-key", rejectAt: null }
+    { reasonCode: "private_source_git_init_rejected", keyMaterial: syntheticPrivateKeyMaterial, rejectAt: 1 },
+    { reasonCode: "private_source_git_fetch_rejected", keyMaterial: syntheticPrivateKeyMaterial, rejectAt: 2 },
+    { reasonCode: "private_source_checkout_rejected", keyMaterial: syntheticPrivateKeyMaterial, rejectAt: 3 },
+    { reasonCode: "private_source_verification_rejected", keyMaterial: syntheticPrivateKeyMaterial, rejectAt: null }
   ];
 
   for (const testCase of cases) {

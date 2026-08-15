@@ -8,6 +8,9 @@ import { fileURLToPath } from "node:url";
 const COMMIT = /^[0-9a-f]{40}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
 const SAFE_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/u;
+const OPENSSH_BEGIN = ["-----BEGIN OPENSSH", "PRIVATE KEY-----"].join(" ");
+const OPENSSH_END = ["-----END OPENSSH", "PRIVATE KEY-----"].join(" ");
+const OPENSSH_MAGIC = Buffer.from("openssh-key-v1\0", "utf8");
 
 function ordered(value) {
   if (Array.isArray(value)) return value.map(ordered);
@@ -29,6 +32,29 @@ function sourceStageFailure(reasonCode) {
   const error = new Error("SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED");
   Object.defineProperty(error, "reasonCode", { value: reasonCode });
   return error;
+}
+
+function normalizePrivateKeyMaterial(value) {
+  if (typeof value !== "string" || !value || value.length > 16_384 || value.includes("\0")) {
+    fail("ephemeral_input_rejected");
+  }
+  const normalized = value.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
+  const lines = normalized.split("\n");
+  if (lines.at(-1) === "") lines.pop();
+  const payloadLines = lines.slice(1, -1);
+  if (lines[0] !== OPENSSH_BEGIN || lines.at(-1) !== OPENSSH_END || payloadLines.length === 0
+    || payloadLines.some((line) => !/^[A-Za-z0-9+/]+={0,2}$/u.test(line))) {
+    fail("ephemeral_input_rejected");
+  }
+  const encoded = payloadLines.join("");
+  const decoded = Buffer.from(encoded, "base64");
+  const canonical = decoded.toString("base64").replace(/=+$/u, "");
+  if (canonical !== encoded.replace(/=+$/u, "")
+    || decoded.length <= OPENSSH_MAGIC.length
+    || !decoded.subarray(0, OPENSSH_MAGIC.length).equals(OPENSSH_MAGIC)) {
+    fail("ephemeral_input_rejected");
+  }
+  return normalized;
 }
 
 function validateSourceLock(lock) {
@@ -248,9 +274,7 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, keyMaterial, ope
     || typeof operation !== "function" || !Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 90_000) {
     fail("ephemeral_input_rejected");
   }
-  const writtenKeyMaterial = usingFakeKey
-    ? selectedKeyMaterial
-    : selectedKeyMaterial.replace(/^\uFEFF/u, "").replace(/\r\n?/gu, "\n");
+  const writtenKeyMaterial = usingFakeKey ? selectedKeyMaterial : normalizePrivateKeyMaterial(selectedKeyMaterial);
   if (!writtenKeyMaterial) fail("ephemeral_input_rejected");
   const workspacePath = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-public-runner-"));
   const sshDirectory = path.join(workspacePath, "ssh");
@@ -483,8 +507,9 @@ export async function fetchLockedPrivateSource({
       || typeof signal.addEventListener !== "function") {
       throw new Error("source fetch input rejected");
     }
+    const normalizedKeyMaterial = normalizePrivateKeyMaterial(keyMaterial);
     return await withEphemeralWorkspace({
-      keyMaterial,
+      keyMaterial: normalizedKeyMaterial,
       signal,
       timeoutMs: 90_000,
       operation: async ({
