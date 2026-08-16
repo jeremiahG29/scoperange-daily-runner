@@ -287,6 +287,21 @@ test("real deploy-key material is normalized from Windows transport before SSH u
   assert.equal(observed.startsWith("\ufeff"), false);
 });
 
+test("GitHub-trimmed deploy-key material regains one terminal LF before SSH use", async (context) => {
+  const sourceLock = await import("../bootstrap/source-lock.js");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-key-terminal-lf-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const { keyMaterial } = generateSyntheticDeployKey(directory);
+  const transported = keyMaterial.replace(/[\r\n]+$/u, "");
+  const observed = await sourceLock.withEphemeralWorkspace({
+    keyMaterial: transported,
+    timeoutMs: 1000,
+    operation: ({ identityPath }) => fs.readFileSync(identityPath, "utf8")
+  });
+
+  assert.equal(observed, `${transported}\n`);
+});
+
 test("malformed deploy-key material is rejected before any Git command", async (context) => {
   const sourceLock = await import("../bootstrap/source-lock.js");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-key-preflight-"));
