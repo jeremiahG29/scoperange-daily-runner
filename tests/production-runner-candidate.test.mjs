@@ -28,7 +28,7 @@ test("production runner bridge is implemented while provider activation remains 
 test("production source lock binds the exact reviewed private bundle without activation", () => {
   const lock = JSON.parse(fs.readFileSync("production-source-lock.example.json", "utf8"));
   assert.equal(lock.repository, "jeremiahG29/scopematch");
-  assert.equal(lock.approvedCommit, "b0933adcc58ff2f7a2b51f0a17a9ec9b18a3ba34");
+  assert.equal(lock.approvedCommit, "abcce7c5ba0f00bf7bd2ba976e63481348aaa444");
   assert.equal(lock.approvedParent, "9a37ec0b96171423bc1ed605ffaa22debe88fa4f");
   assert.equal(lock.requiredAncestor, lock.approvedParent);
   assert.equal(lock.approvedTree, "ab07ec92a92bedbdbd6716fc50465b69c8f8f1b3");
