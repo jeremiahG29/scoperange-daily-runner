@@ -54,7 +54,7 @@ function normalizePrivateKeyMaterial(value) {
     || !decoded.subarray(0, OPENSSH_MAGIC.length).equals(OPENSSH_MAGIC)) {
     fail("ephemeral_input_rejected");
   }
-  return normalized;
+  return `${lines.join("\n")}\n`;
 }
 
 function validateSourceLock(lock) {
