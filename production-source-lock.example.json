@@ -1,11 +1,11 @@
 {
   "schemaVersion": "scoperange-public-runner-source-lock-v1",
-  "lockVersion": "runner-failure-contract-abcce7c-v1",
+  "lockVersion": "runner-failure-diagnostics-b36f7c5-v1",
   "repository": "jeremiahG29/scopematch",
-  "approvedCommit": "abcce7c5ba0f00bf7bd2ba976e63481348aaa444",
-  "requiredAncestor": "9a37ec0b96171423bc1ed605ffaa22debe88fa4f",
-  "approvedParent": "9a37ec0b96171423bc1ed605ffaa22debe88fa4f",
-  "approvedTree": "ab07ec92a92bedbdbd6716fc50465b69c8f8f1b3",
+  "approvedCommit": "b36f7c5609d1e381aced5f62eb448309c2ce8ce0",
+  "requiredAncestor": "abcce7c5ba0f00bf7bd2ba976e63481348aaa444",
+  "approvedParent": "abcce7c5ba0f00bf7bd2ba976e63481348aaa444",
+  "approvedTree": "4de652368f014958ae60c117b7100829a2cad433",
   "bundleRoot": "scoperange/pricing-intelligence/production-runner",
   "allowedPaths": [
     "scoperange/pricing-intelligence/production-runner/bridge-entry.js",
@@ -16,7 +16,7 @@
     "scoperange/pricing-intelligence/production-runner/production-evidence-writer.js",
     "scoperange/pricing-intelligence/production-runner/public-source-fetch.js"
   ],
-  "allowedBundleDigest": "sha256:35b1b98229f87afcce61af3b39ca2607d0e019a02745eb6fb136857455604fdd",
+  "allowedBundleDigest": "sha256:745e4466f650e3ede2387dd389cd658d8b10cf3230eda44910ef3dc74f36231f",
   "fetch": {
     "refType": "commit_only",
     "allowedRefs": [],

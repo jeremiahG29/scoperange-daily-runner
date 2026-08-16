@@ -28,12 +28,12 @@ test("production runner bridge is implemented while provider activation remains 
 test("production source lock binds the exact reviewed private bundle without activation", () => {
   const lock = JSON.parse(fs.readFileSync("production-source-lock.example.json", "utf8"));
   assert.equal(lock.repository, "jeremiahG29/scopematch");
-  assert.equal(lock.approvedCommit, "abcce7c5ba0f00bf7bd2ba976e63481348aaa444");
-  assert.equal(lock.approvedParent, "9a37ec0b96171423bc1ed605ffaa22debe88fa4f");
+  assert.equal(lock.approvedCommit, "b36f7c5609d1e381aced5f62eb448309c2ce8ce0");
+  assert.equal(lock.approvedParent, "abcce7c5ba0f00bf7bd2ba976e63481348aaa444");
   assert.equal(lock.requiredAncestor, lock.approvedParent);
-  assert.equal(lock.approvedTree, "ab07ec92a92bedbdbd6716fc50465b69c8f8f1b3");
+  assert.equal(lock.approvedTree, "4de652368f014958ae60c117b7100829a2cad433");
   assert.equal(lock.bundleRoot, "scoperange/pricing-intelligence/production-runner");
-  assert.equal(lock.allowedBundleDigest, "sha256:35b1b98229f87afcce61af3b39ca2607d0e019a02745eb6fb136857455604fdd");
+  assert.equal(lock.allowedBundleDigest, "sha256:745e4466f650e3ede2387dd389cd658d8b10cf3230eda44910ef3dc74f36231f");
   assert.equal(lock.credential.created, false);
   assert.equal(lock.activationAuthorized, false);
 });
