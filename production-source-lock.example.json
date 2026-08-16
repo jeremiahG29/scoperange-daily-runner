@@ -1,8 +1,8 @@
 {
   "schemaVersion": "scoperange-public-runner-source-lock-v1",
-  "lockVersion": "runner-failure-contract-b0933ad-v1",
+  "lockVersion": "runner-failure-contract-abcce7c-v1",
   "repository": "jeremiahG29/scopematch",
-  "approvedCommit": "b0933adcc58ff2f7a2b51f0a17a9ec9b18a3ba34",
+  "approvedCommit": "abcce7c5ba0f00bf7bd2ba976e63481348aaa444",
   "requiredAncestor": "9a37ec0b96171423bc1ed605ffaa22debe88fa4f",
   "approvedParent": "9a37ec0b96171423bc1ed605ffaa22debe88fa4f",
   "approvedTree": "ab07ec92a92bedbdbd6716fc50465b69c8f8f1b3",
