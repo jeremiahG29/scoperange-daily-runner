@@ -28,12 +28,12 @@ test("production runner bridge is implemented while provider activation remains 
 test("production source lock binds the exact reviewed private bundle without activation", () => {
   const lock = JSON.parse(fs.readFileSync("production-source-lock.example.json", "utf8"));
   assert.equal(lock.repository, "jeremiahG29/scopematch");
-  assert.equal(lock.approvedCommit, "9a37ec0b96171423bc1ed605ffaa22debe88fa4f");
-  assert.equal(lock.approvedParent, "126a37862b0afb43d25a90f8bc9f4d2625b1f1c6");
+  assert.equal(lock.approvedCommit, "b0933adcc58ff2f7a2b51f0a17a9ec9b18a3ba34");
+  assert.equal(lock.approvedParent, "9a37ec0b96171423bc1ed605ffaa22debe88fa4f");
   assert.equal(lock.requiredAncestor, lock.approvedParent);
-  assert.equal(lock.approvedTree, "802aae2732408c9948c57ff4310e8dfdade9f9dd");
+  assert.equal(lock.approvedTree, "ab07ec92a92bedbdbd6716fc50465b69c8f8f1b3");
   assert.equal(lock.bundleRoot, "scoperange/pricing-intelligence/production-runner");
-  assert.equal(lock.allowedBundleDigest, "sha256:484aae9b7bdb67ebbd2cdd16bbbfb7596ac4eab8efccae4b893569b1c551bea0");
+  assert.equal(lock.allowedBundleDigest, "sha256:35b1b98229f87afcce61af3b39ca2607d0e019a02745eb6fb136857455604fdd");
   assert.equal(lock.credential.created, false);
   assert.equal(lock.activationAuthorized, false);
 });
@@ -385,6 +385,42 @@ test("configured bridge keeps secrets in stdin and accepts only a fixed private 
   const publicShape = processCalls.map(({ stdin, ...value }) => value);
   assert.equal(JSON.stringify(publicShape).includes(canary), false);
   assert.equal(JSON.stringify(result).includes(canary), false);
+});
+
+test("configured bridge returns a valid rejected private receipt from exit code one", async () => {
+  const entry = await import("../bootstrap/production-runner-entry.js");
+  const privateReceipt = {
+    schemaVersion: "scoperange-production-runner-receipt-v1",
+    disposition: "rejected",
+    reasonCode: "source_fetch_failed",
+    sourceRequests: 1,
+    databaseTransactions: 2,
+    evidenceWrites: 0,
+    numericEvidenceCount: 0,
+    proposalEffects: 0,
+    promotionEffects: 0,
+    pricingEffects: 0,
+    productionAuthority: "evidence_only"
+  };
+
+  const result = await entry.executeConfiguredProductionBridge({
+    authorization: "scoperange-production-runner-non-secret-gate-accepted-v1",
+    lock: { bundleRoot: "scoperange/pricing-intelligence/production-runner" },
+    keyMaterial: "synthetic-private-source-key",
+    privateInput: { schemaVersion: "scoperange-production-runner-input-v1" },
+    signal: new AbortController().signal,
+    fetchImpl: async (value) => value.consumeVerifiedCheckout({
+      checkoutPath: path.resolve("synthetic-checkout"),
+      workspacePath: path.resolve("synthetic-workspace"),
+      bundleRoot: value.lock.bundleRoot,
+      runManagedProcess: async () => ({ exitCode: 0, stdout: "", stderr: "" })
+    }),
+    processImpl: async (value) => value.program === process.execPath
+      ? { exitCode: 1, stdout: `${JSON.stringify(privateReceipt)}\n`, stderr: "" }
+      : { exitCode: 0, stdout: "installed\n", stderr: "" }
+  });
+
+  assert.deepEqual(result, privateReceipt);
 });
 
 test("registered production workflow exactly matches the cacheless disabled candidate", () => {
