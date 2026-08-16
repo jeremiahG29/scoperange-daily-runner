@@ -118,9 +118,10 @@ function failureReason(error, fallback) {
   return FAILURE_REASON_CODES.has(error?.reasonCode) ? error.reasonCode : fallback;
 }
 
-async function runProcess(processImpl, value) {
+async function runProcess(processImpl, value, allowedExitCodes = [0]) {
   const result = await processImpl({ ...value, maxOutputBytes: 64 * 1024 });
-  if (!result || result.exitCode !== 0 || typeof result.stdout !== "string" || typeof result.stderr !== "string"
+  if (!result || !allowedExitCodes.includes(result.exitCode)
+    || typeof result.stdout !== "string" || typeof result.stderr !== "string"
     || Buffer.byteLength(result.stdout, "utf8") + Buffer.byteLength(result.stderr, "utf8") > 64 * 1024) {
     throw new Error("process rejected");
   }
@@ -203,10 +204,11 @@ export async function executeConfiguredProductionBridge({ authorization, lock, k
         const child = await runProcess(selectedProcess, {
           program: process.execPath, args: ["bridge-entry.js"], cwd: bundlePath,
           env: { NODE_ENV: "production" }, stdin: `${JSON.stringify(deliveredPrivateInput)}\n`, signal
-        });
+        }, [0, 1]);
         if (child.stderr !== "" || !child.stdout.endsWith("\n") || child.stdout.trim().includes("\n")) throw new Error("child output rejected");
         const receipt = JSON.parse(child.stdout);
-        if (!validPrivateReceipt(receipt)) throw new Error("receipt rejected");
+        if (!validPrivateReceipt(receipt)
+          || (child.exitCode === 0) !== (receipt.disposition === "evidence_recorded")) throw new Error("receipt rejected");
         consumed = true;
         consumedResult = Object.freeze(receipt);
         return consumedResult;
