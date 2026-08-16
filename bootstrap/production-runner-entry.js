@@ -193,22 +193,31 @@ export async function executeConfiguredProductionBridge({ authorization, lock, k
         if (typeof selectedProcess !== "function") throw new Error("process rejected");
         const cachePath = path.join(workspacePath, "npm-cache");
         failureReasonCode = "private_install_rejected";
-        await runProcess(selectedProcess, {
-          program: process.platform === "win32" ? "npm.cmd" : "npm",
-          args: ["ci", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", cachePath, "--prefer-offline=false"],
-          cwd: bundlePath,
-          env: { npm_config_cache: cachePath, npm_config_ignore_scripts: "true", npm_config_audit: "false", npm_config_fund: "false" },
-          stdin: "", signal
-        });
+        try {
+          await runProcess(selectedProcess, {
+            program: process.platform === "win32" ? "npm.cmd" : "npm",
+            args: ["ci", "--ignore-scripts", "--no-audit", "--no-fund", "--cache", cachePath, "--prefer-offline=false"],
+            cwd: bundlePath,
+            env: { npm_config_cache: cachePath, npm_config_ignore_scripts: "true", npm_config_audit: "false", npm_config_fund: "false" },
+            stdin: "", signal
+          });
+        } catch {
+          throw stageFailure(failureReasonCode);
+        }
         failureReasonCode = "private_execution_rejected";
-        const child = await runProcess(selectedProcess, {
-          program: process.execPath, args: ["bridge-entry.js"], cwd: bundlePath,
-          env: { NODE_ENV: "production" }, stdin: `${JSON.stringify(deliveredPrivateInput)}\n`, signal
-        }, [0, 1]);
-        if (child.stderr !== "" || !child.stdout.endsWith("\n") || child.stdout.trim().includes("\n")) throw new Error("child output rejected");
-        const receipt = JSON.parse(child.stdout);
-        if (!validPrivateReceipt(receipt)
-          || (child.exitCode === 0) !== (receipt.disposition === "evidence_recorded")) throw new Error("receipt rejected");
+        let receipt;
+        try {
+          const child = await runProcess(selectedProcess, {
+            program: process.execPath, args: ["bridge-entry.js"], cwd: bundlePath,
+            env: { NODE_ENV: "production" }, stdin: `${JSON.stringify(deliveredPrivateInput)}\n`, signal
+          }, [0, 1]);
+          if (!child.stdout.endsWith("\n") || child.stdout.trim().includes("\n")) throw new Error("child output rejected");
+          receipt = JSON.parse(child.stdout);
+          if (!validPrivateReceipt(receipt)
+            || (child.exitCode === 0) !== (receipt.disposition === "evidence_recorded")) throw new Error("receipt rejected");
+        } catch {
+          throw stageFailure(failureReasonCode);
+        }
         consumed = true;
         consumedResult = Object.freeze(receipt);
         return consumedResult;

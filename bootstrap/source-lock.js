@@ -11,6 +11,11 @@ const SAFE_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[A-Za-z0-9._/-]+$/u;
 const OPENSSH_BEGIN = ["-----BEGIN OPENSSH", "PRIVATE KEY-----"].join(" ");
 const OPENSSH_END = ["-----END OPENSSH", "PRIVATE KEY-----"].join(" ");
 const OPENSSH_MAGIC = Buffer.from("openssh-key-v1\0", "utf8");
+const CONSUMER_STAGE_FAILURE = Symbol("consumerStageFailure");
+const CONSUMER_REASON_CODES = Object.freeze(new Set([
+  "private_install_rejected",
+  "private_execution_rejected"
+]));
 
 function ordered(value) {
   if (Array.isArray(value)) return value.map(ordered);
@@ -32,6 +37,15 @@ function sourceStageFailure(reasonCode) {
   const error = new Error("SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED");
   Object.defineProperty(error, "reasonCode", { value: reasonCode });
   return error;
+}
+
+function sanitizedConsumerFailure(error) {
+  const reasonCode = CONSUMER_REASON_CODES.has(error?.reasonCode)
+    ? error.reasonCode
+    : "private_execution_rejected";
+  const failure = sourceStageFailure(reasonCode);
+  Object.defineProperty(failure, CONSUMER_STAGE_FAILURE, { value: true });
+  return failure;
 }
 
 function normalizePrivateKeyMaterial(value) {
@@ -427,9 +441,11 @@ export async function withEphemeralWorkspace({ fakeKeyMaterial, keyMaterial, ope
     }
     result = await Promise.race(contenders);
   } catch (error) {
-    operationError = (error?.message === "ephemeral_operation_timeout" || error?.message === "ephemeral_operation_cancelled")
+    operationError = error?.[CONSUMER_STAGE_FAILURE] === true
       ? error
-      : new Error("ephemeral_operation_failed");
+      : (error?.message === "ephemeral_operation_timeout" || error?.message === "ephemeral_operation_cancelled")
+        ? error
+        : new Error("ephemeral_operation_failed");
   } finally {
     if (timeout) clearTimeout(timeout);
     if (signal && abortListener) signal.removeEventListener("abort", abortListener);
@@ -598,16 +614,21 @@ export async function fetchLockedPrivateSource({
         failureReasonCode = "private_source_verification_rejected";
         const verification = verifyLocalCheckout({ checkoutPath, lock });
         if (consumeVerifiedCheckout === undefined) return verification;
-        return consumeVerifiedCheckout({
-          workspacePath,
-          checkoutPath,
-          bundleRoot: lock.bundleRoot,
-          runManagedProcess
-        });
+        try {
+          return await consumeVerifiedCheckout({
+            workspacePath,
+            checkoutPath,
+            bundleRoot: lock.bundleRoot,
+            runManagedProcess
+          });
+        } catch (error) {
+          throw sanitizedConsumerFailure(error);
+        }
       }
     });
-  } catch {
+  } catch (error) {
     if (signal?.aborted) throw new Error("SCOPERANGE_PUBLIC_SOURCE_FETCH_CANCELLED");
+    if (error?.[CONSUMER_STAGE_FAILURE] === true) throw error;
     throw sourceStageFailure(failureReasonCode);
   }
 }

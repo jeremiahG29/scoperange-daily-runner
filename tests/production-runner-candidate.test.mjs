@@ -416,7 +416,7 @@ test("configured bridge returns a valid rejected private receipt from exit code 
       runManagedProcess: async () => ({ exitCode: 0, stdout: "", stderr: "" })
     }),
     processImpl: async (value) => value.program === process.execPath
-      ? { exitCode: 1, stdout: `${JSON.stringify(privateReceipt)}\n`, stderr: "" }
+      ? { exitCode: 1, stdout: `${JSON.stringify(privateReceipt)}\n`, stderr: "synthetic-runtime-warning\n" }
       : { exitCode: 0, stdout: "installed\n", stderr: "" }
   });
 
