@@ -367,6 +367,31 @@ test("a verified checkout can be consumed only inside its ephemeral workspace", 
   assert.equal(fs.existsSync(checkoutPath), false);
 });
 
+test("a verified checkout consumer failure preserves only its fixed execution stage", async (context) => {
+  const sourceLock = await import("../bootstrap/source-lock.js");
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-consumer-failure-"));
+  context.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const { bare, keyMaterial, lock, publicKey } = fixtureLock(directory);
+  const canary = "synthetic-private-consumer-canary";
+
+  await assert.rejects(
+    sourceLock.fetchLockedPrivateSource({
+      lock,
+      keyMaterial,
+      spawnImpl: localGitSpawner(bare, [], publicKey),
+      signal: new AbortController().signal,
+      consumeVerifiedCheckout: async () => {
+        const error = new Error(canary);
+        Object.defineProperty(error, "reasonCode", { value: "private_execution_rejected" });
+        throw error;
+      }
+    }),
+    (error) => error.message === "SCOPERANGE_PUBLIC_SOURCE_FETCH_REJECTED"
+      && error.reasonCode === "private_execution_rejected"
+      && !error.message.includes(canary)
+  );
+});
+
 test("fetch cancellation and failure are sanitized and leave no ephemeral workspace", async (context) => {
   const sourceLock = await import("../bootstrap/source-lock.js");
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scoperange-proof-fetch-failure-"));
